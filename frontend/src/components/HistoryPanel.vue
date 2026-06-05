@@ -1,6 +1,6 @@
 <template>
   <ModulePanel class="history-panel">
-    <PanelTitle title="本地历史">
+    <PanelTitle title="历史记录">
       <template #meta>
         <el-tag>{{ history.length }}</el-tag>
       </template>
@@ -11,8 +11,13 @@
         <button class="history-item" :class="{ active: selectedId === item.id }" type="button" @click="$emit('select', item)">
           <img v-if="item.previewUrl" :src="item.previewUrl" alt="" />
           <span v-else class="history-thumb">PNG</span>
-          <span>
-            <strong>{{ item.sourceName }}</strong>
+          <span class="history-copy">
+            <span class="history-title-line">
+              <strong>{{ item.sourceName }}</strong>
+              <el-tag v-if="item.storageMode === 'session'" class="history-mode-tag" type="warning" size="small" effect="plain">
+                会话
+              </el-tag>
+            </span>
             <small>{{ getHistorySummary(item) }}</small>
           </span>
         </button>

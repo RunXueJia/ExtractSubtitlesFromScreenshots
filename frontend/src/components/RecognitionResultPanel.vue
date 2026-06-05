@@ -7,12 +7,24 @@
     </PanelTitle>
     <div class="frame-grid">
       <div class="preview-section">
-        <input ref="imageInputRef" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="handleImageChange" />
+        <input
+          ref="imageInputRef"
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          hidden
+          @change="handleImageChange" />
         <div
           class="frame-preview"
-          :class="{ 'frame-preview--empty': canImportImage, 'frame-preview--drop-ready': isDraggingImage }"
+          :class="{
+            'frame-preview--empty': canImportImage,
+            'frame-preview--drop-ready': isDraggingImage,
+          }"
           :tabindex="canImportImage ? 0 : undefined"
-          :aria-label="canImportImage ? '点击选择图片，或拖拽、粘贴图片到截帧预览区' : undefined"
+          :aria-label="
+            canImportImage
+              ? '点击选择图片，或拖拽、粘贴图片到截帧预览区'
+              : undefined
+          "
           @click="chooseImage"
           @dragenter.prevent="handleFrameDragover"
           @dragover.prevent="handleFrameDragover"
@@ -20,8 +32,7 @@
           @drop.prevent="handleFrameDrop"
           @keydown.enter.prevent="chooseImage"
           @keydown.space.prevent="chooseImage"
-          @paste="handleFramePaste"
-        >
+          @paste="handleFramePaste">
           <template v-if="currentFrame?.previewUrl">
             <div ref="previewMediaRef" class="frame-preview-media">
               <img
@@ -30,21 +41,19 @@
                 :src="currentFrame.previewUrl"
                 alt=""
                 draggable="false"
-                @load="updatePreviewImageBox"
-              />
+                @load="updatePreviewImageBox" />
               <div
                 class="subtitle-region-overlay"
                 :class="{ 'subtitle-region-overlay--dragging': regionDrag }"
                 :style="regionOverlayStyle"
                 title="拖拽调整字幕区域"
-                @pointerdown="startRegionDrag($event, 'move')"
-              >
-                <span class="subtitle-region-handle subtitle-region-handle--top" @pointerdown.stop="startRegionDrag($event, 'top')"></span>
-                <span class="subtitle-region-label">{{ regionLabel }}</span>
+                @pointerdown="startRegionDrag($event, 'move')">
+                <span
+                  class="subtitle-region-handle subtitle-region-handle--top"
+                  @pointerdown.stop="startRegionDrag($event, 'top')"></span>
                 <span
                   class="subtitle-region-handle subtitle-region-handle--bottom"
-                  @pointerdown.stop="startRegionDrag($event, 'bottom')"
-                ></span>
+                  @pointerdown.stop="startRegionDrag($event, 'bottom')"></span>
               </div>
             </div>
           </template>
@@ -72,11 +81,12 @@
             v-model="subtitleModel"
             class="subtitle-input"
             type="textarea"
-            :autosize="{ minRows: 5, maxRows: 10 }"
             resize="none"
-            placeholder="识别结果"
-          />
-          <div v-if="markedSubtitleHtml" class="marked-preview" v-html="markedSubtitleHtml"></div>
+            placeholder="识别结果" />
+          <div
+            v-if="markedSubtitleHtml"
+            class="marked-preview"
+            v-html="markedSubtitleHtml"></div>
         </div>
 
         <div class="text-stack">
@@ -89,10 +99,8 @@
             v-model="translationModel"
             class="translation-input"
             type="textarea"
-            :autosize="{ minRows: 4, maxRows: 8 }"
             resize="none"
-            placeholder="翻译结果"
-          />
+            placeholder="翻译结果" />
         </div>
       </div>
     </div>
@@ -104,8 +112,7 @@
         :icon="View"
         :loading="ocrStatus === '识别中'"
         :disabled="!currentFrame || busy"
-        @click="$emit('recognize')"
-      >
+        @click="$emit('recognize')">
         识别字幕
       </el-button>
       <el-button
@@ -113,15 +120,27 @@
         :icon="Switch"
         :loading="translateStatus === '翻译中'"
         :disabled="!currentFrame || busy"
-        @click="$emit('translate')"
-      >
+        @click="$emit('translate')">
         翻译
       </el-button>
-      <el-button :icon="DocumentChecked" :disabled="!currentFrame || busy" @click="$emit('save')">保存文本</el-button>
-      <el-button class="action-button action-button--primary" :icon="CopyDocument" :disabled="!currentFrame || busy" @click="$emit('copy')">
+      <el-button
+        :icon="DocumentChecked"
+        :disabled="!currentFrame || busy"
+        @click="$emit('save')"
+        >保存文本</el-button
+      >
+      <el-button
+        class="action-button action-button--primary"
+        :icon="CopyDocument"
+        :disabled="!currentFrame || busy"
+        @click="$emit('copy')">
         复制图片
       </el-button>
-      <el-button class="action-button action-button--primary" :icon="Download" :disabled="!currentFrame || busy" @click="$emit('download')">
+      <el-button
+        class="action-button action-button--primary"
+        :icon="Download"
+        :disabled="!currentFrame || busy"
+        @click="$emit('download')">
         下载 PNG
       </el-button>
     </div>
@@ -129,59 +148,81 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { CopyDocument, DocumentChecked, Download, Switch, View } from '@element-plus/icons-vue';
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
+import {
+  CopyDocument,
+  DocumentChecked,
+  Download,
+  Switch,
+  View,
+} from "@element-plus/icons-vue";
+import MarkdownIt from "markdown-it";
+import markdownItMark from "markdown-it-mark";
 
-import ModulePanel from './ModulePanel.vue';
-import PanelTitle from './PanelTitle.vue';
+import ModulePanel from "./ModulePanel.vue";
+import PanelTitle from "./PanelTitle.vue";
+
+const markdownRenderer = new MarkdownIt({
+  html: false,
+  breaks: true,
+  linkify: false,
+  typographer: false,
+}).use(markdownItMark);
 
 const props = defineProps({
   currentFrame: {
     type: Object,
-    default: null
+    default: null,
   },
   cropTop: {
     type: Number,
-    required: true
+    required: true,
   },
   cropBottom: {
     type: Number,
-    required: true
+    required: true,
   },
   subtitleText: {
     type: String,
-    required: true
+    required: true,
   },
   translationText: {
     type: String,
-    required: true
+    required: true,
   },
   ocrStatus: {
     type: String,
-    required: true
+    required: true,
   },
   translateStatus: {
     type: String,
-    required: true
+    required: true,
   },
   busy: {
     type: Boolean,
-    default: false
-  }
+    default: false,
+  },
 });
 
 const emit = defineEmits([
-  'update:cropTop',
-  'update:cropBottom',
-  'update:subtitleText',
-  'update:translationText',
-  'recognize',
-  'translate',
-  'save',
-  'copy',
-  'download',
-  'select-image',
-  'reject-image'
+  "update:cropTop",
+  "update:cropBottom",
+  "update:subtitleText",
+  "update:translationText",
+  "recognize",
+  "translate",
+  "save",
+  "copy",
+  "download",
+  "select-image",
+  "reject-image",
 ]);
 
 const scratchCanvasRef = ref(null);
@@ -196,15 +237,27 @@ let previewResizeObserver = null;
 
 const frameMeta = computed(() => {
   const frame = props.currentFrame;
-  if (!frame) return '尚无截帧';
-  return `${frame.width} x ${frame.height}${frame.bytes ? ` · ${frame.bytes}` : ''}`;
+  if (!frame) return "尚无截帧";
+  return `${frame.width} x ${frame.height}${frame.bytes ? ` · ${frame.bytes}` : ""}`;
 });
 
 const canImportImage = computed(() => !props.currentFrame && !props.busy);
-const markedSubtitleHtml = computed(() => renderMarkedSubtitle(props.subtitleText));
-const ocrTagType = computed(() => (props.ocrStatus.includes('失败') ? 'danger' : props.ocrStatus.includes('已') ? 'success' : 'info'));
+const markedSubtitleHtml = computed(() =>
+  renderMarkdownSubtitle(props.subtitleText),
+);
+const ocrTagType = computed(() =>
+  props.ocrStatus.includes("失败")
+    ? "danger"
+    : props.ocrStatus.includes("已")
+      ? "success"
+      : "info",
+);
 const translateTagType = computed(() =>
-  props.translateStatus.includes('失败') ? 'danger' : props.translateStatus.includes('已') ? 'success' : 'info'
+  props.translateStatus.includes("失败")
+    ? "danger"
+    : props.translateStatus.includes("已")
+      ? "success"
+      : "info",
 );
 
 const regionLabel = computed(() => `${props.cropTop}% - ${props.cropBottom}%`);
@@ -218,18 +271,18 @@ const regionOverlayStyle = computed(() => {
     top: `${top}px`,
     width: `${box.width}px`,
     height: `${height}px`,
-    visibility: box.width && box.height ? 'visible' : 'hidden'
+    visibility: box.width && box.height ? "visible" : "hidden",
   };
 });
 
 const subtitleModel = computed({
   get: () => props.subtitleText,
-  set: value => emit('update:subtitleText', value)
+  set: (value) => emit("update:subtitleText", value),
 });
 
 const translationModel = computed({
   get: () => props.translationText,
-  set: value => emit('update:translationText', value)
+  set: (value) => emit("update:translationText", value),
 });
 
 function clamp(value, min, max) {
@@ -240,14 +293,15 @@ function emitCropRegion(top, bottom) {
   let nextTop = Math.round(clamp(top, 0, 100 - MIN_REGION_HEIGHT));
   let nextBottom = Math.round(clamp(bottom, MIN_REGION_HEIGHT, 100));
 
-  if (nextBottom < nextTop + MIN_REGION_HEIGHT) nextBottom = nextTop + MIN_REGION_HEIGHT;
+  if (nextBottom < nextTop + MIN_REGION_HEIGHT)
+    nextBottom = nextTop + MIN_REGION_HEIGHT;
   if (nextBottom > 100) {
     nextBottom = 100;
     nextTop = 100 - MIN_REGION_HEIGHT;
   }
 
-  emit('update:cropTop', nextTop);
-  emit('update:cropBottom', nextBottom);
+  emit("update:cropTop", nextTop);
+  emit("update:cropBottom", nextBottom);
 }
 
 function updatePreviewImageBox() {
@@ -289,7 +343,7 @@ function observePreviewMedia() {
   previewResizeObserver?.disconnect();
   previewResizeObserver = null;
 
-  if (!previewMediaRef.value || typeof ResizeObserver === 'undefined') return;
+  if (!previewMediaRef.value || typeof ResizeObserver === "undefined") return;
 
   previewResizeObserver = new ResizeObserver(updatePreviewImageBox);
   previewResizeObserver.observe(previewMediaRef.value);
@@ -308,11 +362,11 @@ function startRegionDrag(event, mode) {
     startY: event.clientY,
     startTop: props.cropTop,
     startBottom: props.cropBottom,
-    rectHeight: box.height
+    rectHeight: box.height,
   };
-  window.addEventListener('pointermove', handleRegionPointerMove);
-  window.addEventListener('pointerup', stopRegionDrag);
-  window.addEventListener('pointercancel', stopRegionDrag);
+  window.addEventListener("pointermove", handleRegionPointerMove);
+  window.addEventListener("pointerup", stopRegionDrag);
+  window.addEventListener("pointercancel", stopRegionDrag);
 }
 
 function handleRegionPointerMove(event) {
@@ -323,14 +377,22 @@ function handleRegionPointerMove(event) {
   const delta = ((event.clientY - drag.startY) / drag.rectHeight) * 100;
   const startHeight = drag.startBottom - drag.startTop;
 
-  if (drag.mode === 'top') {
-    const top = clamp(drag.startTop + delta, 0, drag.startBottom - MIN_REGION_HEIGHT);
+  if (drag.mode === "top") {
+    const top = clamp(
+      drag.startTop + delta,
+      0,
+      drag.startBottom - MIN_REGION_HEIGHT,
+    );
     emitCropRegion(top, drag.startBottom);
     return;
   }
 
-  if (drag.mode === 'bottom') {
-    const bottom = clamp(drag.startBottom + delta, drag.startTop + MIN_REGION_HEIGHT, 100);
+  if (drag.mode === "bottom") {
+    const bottom = clamp(
+      drag.startBottom + delta,
+      drag.startTop + MIN_REGION_HEIGHT,
+      100,
+    );
     emitCropRegion(drag.startTop, bottom);
     return;
   }
@@ -341,9 +403,9 @@ function handleRegionPointerMove(event) {
 
 function stopRegionDrag() {
   regionDrag.value = null;
-  window.removeEventListener('pointermove', handleRegionPointerMove);
-  window.removeEventListener('pointerup', stopRegionDrag);
-  window.removeEventListener('pointercancel', stopRegionDrag);
+  window.removeEventListener("pointermove", handleRegionPointerMove);
+  window.removeEventListener("pointerup", stopRegionDrag);
+  window.removeEventListener("pointercancel", stopRegionDrag);
 }
 
 watch(
@@ -353,32 +415,35 @@ watch(
     observePreviewMedia();
     updatePreviewImageBox();
   },
-  { immediate: true }
+  { immediate: true },
 );
 
 onMounted(() => {
   observePreviewMedia();
   updatePreviewImageBox();
-  window.addEventListener('resize', updatePreviewImageBox);
+  window.addEventListener("resize", updatePreviewImageBox);
 });
 
 onBeforeUnmount(() => {
   stopRegionDrag();
   previewResizeObserver?.disconnect();
-  window.removeEventListener('resize', updatePreviewImageBox);
+  window.removeEventListener("resize", updatePreviewImageBox);
 });
 
 function isImageFile(file) {
-  return Boolean(file?.type?.startsWith('image/'));
+  return Boolean(file?.type?.startsWith("image/"));
 }
 
 function hasImageTransferItem(items) {
-  return Array.from(items || []).some(item => item.kind === 'file' && (!item.type || item.type.startsWith('image/')));
+  return Array.from(items || []).some(
+    (item) =>
+      item.kind === "file" && (!item.type || item.type.startsWith("image/")),
+  );
 }
 
 function getImageFileFromItems(items) {
   for (const item of Array.from(items || [])) {
-    if (item.kind !== 'file' || !item.type.startsWith('image/')) continue;
+    if (item.kind !== "file" || !item.type.startsWith("image/")) continue;
     const file = item.getAsFile();
     if (file) return file;
   }
@@ -391,25 +456,25 @@ function getImageFileFromFiles(files) {
 }
 
 function getImageFileNameExtension(type) {
-  if (type === 'image/jpeg') return 'jpg';
-  if (type === 'image/webp') return 'webp';
-  if (type === 'image/gif') return 'gif';
-  return 'png';
+  if (type === "image/jpeg") return "jpg";
+  if (type === "image/webp") return "webp";
+  if (type === "image/gif") return "gif";
+  return "png";
 }
 
-function ensureNamedImageFile(file, prefix = 'pasted-image') {
+function ensureNamedImageFile(file, prefix = "pasted-image") {
   if (file.name) return file;
 
   const extension = getImageFileNameExtension(file.type);
   return new File([file], `${prefix}-${Date.now()}.${extension}`, {
-    type: file.type || 'image/png',
-    lastModified: file.lastModified || Date.now()
+    type: file.type || "image/png",
+    lastModified: file.lastModified || Date.now(),
   });
 }
 
 function emitImageFile(file, prefix) {
   if (!canImportImage.value || !file) return;
-  emit('select-image', ensureNamedImageFile(file, prefix));
+  emit("select-image", ensureNamedImageFile(file, prefix));
 }
 
 function chooseImage() {
@@ -418,18 +483,21 @@ function chooseImage() {
 }
 
 function handleImageChange(event) {
-  emitImageFile(event.target.files?.[0], 'selected-image');
-  event.target.value = '';
+  emitImageFile(event.target.files?.[0], "selected-image");
+  event.target.value = "";
 }
 
 function handleFrameDragover(event) {
   if (!canImportImage.value) return;
 
-  if (hasImageTransferItem(event.dataTransfer?.items) || getImageFileFromFiles(event.dataTransfer?.files)) {
+  if (
+    hasImageTransferItem(event.dataTransfer?.items) ||
+    getImageFileFromFiles(event.dataTransfer?.files)
+  ) {
     isDraggingImage.value = true;
-    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
   } else if (event.dataTransfer) {
-    event.dataTransfer.dropEffect = 'none';
+    event.dataTransfer.dropEffect = "none";
   }
 }
 
@@ -442,51 +510,42 @@ function handleFrameDrop(event) {
   isDraggingImage.value = false;
   if (!canImportImage.value) return;
 
-  const file = getImageFileFromFiles(event.dataTransfer?.files) || getImageFileFromItems(event.dataTransfer?.items);
+  const file =
+    getImageFileFromFiles(event.dataTransfer?.files) ||
+    getImageFileFromItems(event.dataTransfer?.items);
   if (file) {
-    emitImageFile(file, 'dropped-image');
+    emitImageFile(file, "dropped-image");
   } else {
-    emit('reject-image');
+    emit("reject-image");
   }
 }
 
 function handleFramePaste(event) {
   if (!canImportImage.value) return;
 
-  const file = getImageFileFromFiles(event.clipboardData?.files) || getImageFileFromItems(event.clipboardData?.items);
+  const file =
+    getImageFileFromFiles(event.clipboardData?.files) ||
+    getImageFileFromItems(event.clipboardData?.items);
   if (!file) return;
 
   event.preventDefault();
-  emitImageFile(file, 'pasted-image');
+  emitImageFile(file, "pasted-image");
 }
 
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
+function normalizeLegacyMarkTags(value) {
+  const source = String(value || "");
+  return source.replace(
+    /<mark>([\s\S]*?)<\/mark>/gi,
+    (_, content) => `==${content}==`,
+  );
 }
 
-function renderMarkedSubtitle(value) {
-  const source = String(value || '');
-  const parts = [];
-  let cursor = 0;
-  const markPattern = /<mark>(.*?)<\/mark>/gis;
-  let match;
-
-  while ((match = markPattern.exec(source))) {
-    parts.push(escapeHtml(source.slice(cursor, match.index)));
-    parts.push(`<span class="marked-token">${escapeHtml(match[1])}</span>`);
-    cursor = match.index + match[0].length;
-  }
-
-  parts.push(escapeHtml(source.slice(cursor)));
-  return parts.join('').replace(/\n/g, '<br>');
+function renderMarkdownSubtitle(value) {
+  const source = normalizeLegacyMarkTags(value);
+  return source.trim() ? markdownRenderer.render(source) : "";
 }
 
 defineExpose({
-  getScratchCanvasElement: () => scratchCanvasRef.value
+  getScratchCanvasElement: () => scratchCanvasRef.value,
 });
 </script>

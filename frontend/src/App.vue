@@ -87,6 +87,7 @@ const subtitleText = ref('');
 const translationText = ref('');
 const ocrStatus = ref('未识别');
 const translateStatus = ref('待翻译');
+const sessionCaptureReminderShown = ref(false);
 
 function readLegacyHistory() {
   for (const key of LEGACY_HISTORY_KEYS) {
@@ -128,7 +129,7 @@ async function loadHistoryIndex() {
 
 async function persistHistory() {
   try {
-    await writeHistoryIndex(history.value.slice(0, MAX_HISTORY));
+    await writeHistoryIndex(history.value.filter(item => item.storageMode !== 'session').slice(0, MAX_HISTORY));
   } catch {
     ElMessage.warning('浏览器本地索引保存失败。');
   }
@@ -176,6 +177,10 @@ function toHistoryIndex(item) {
     createdAt: item.createdAt,
     updatedAt: item.updatedAt
   };
+}
+
+function canPersistFrame() {
+  return hasOutputDirectoryPermission();
 }
 
 function previewText(value) {
@@ -412,6 +417,8 @@ async function getSourceDirectoryHandle(item, options = {}) {
 }
 
 async function writeFrameSidecar(item) {
+  if (item.storageMode === 'session') return;
+
   const directoryHandle = await getSourceDirectoryHandle(item, { create: true });
   const payload = {
     id: item.id,
@@ -436,12 +443,21 @@ async function writeFrameSidecar(item) {
 }
 
 async function loadFrameBlob(item) {
+  if (item?.blob) return item.blob;
+
   const directoryHandle = await getSourceDirectoryHandle(item);
   const fileHandle = await directoryHandle.getFileHandle(item.imageFileName);
   return fileHandle.getFile();
 }
 
 async function loadFrameSidecar(item) {
+  if (item?.storageMode === 'session') {
+    return {
+      text: item.text || '',
+      translation: item.translation || ''
+    };
+  }
+
   const directoryHandle = await getSourceDirectoryHandle(item);
   const fileHandle = await directoryHandle.getFileHandle(item.textFileName);
   const file = await fileHandle.getFile();
@@ -474,6 +490,11 @@ async function hydrateHistoryFromStorage() {
   const nextHistory = [];
 
   for (const item of history.value) {
+    if (item.storageMode === 'session') {
+      nextHistory.push(item);
+      continue;
+    }
+
     try {
       nextHistory.push(await hydrateFrameItem(item));
     } catch {
@@ -545,10 +566,6 @@ async function setSource(file, type) {
 
 async function handleImageReady() {
   if (sourceType.value !== 'image') return;
-  if (!hasOutputDirectoryPermission()) {
-    ElMessage.warning('截图已载入，请先选择保存目录。');
-    return;
-  }
 
   await captureImagePreview();
 }
@@ -559,14 +576,17 @@ function handleImageError() {
 }
 
 async function createFrameItem(blob, meta = {}) {
-  const rootHandle = await ensureOutputDirectory();
+  const shouldPersist = canPersistFrame();
   const sourceDirName = getSourceDirectoryName(sourceName.value);
-  const directoryHandle = await rootHandle.getDirectoryHandle(sourceDirName, { create: true });
   const id = createFrameId();
   const imageFileName = `${id}.png`;
   const textFileName = `${id}.json`;
 
-  await writeFile(directoryHandle, imageFileName, blob);
+  if (shouldPersist) {
+    const rootHandle = await ensureOutputDirectory();
+    const directoryHandle = await rootHandle.getDirectoryHandle(sourceDirName, { create: true });
+    await writeFile(directoryHandle, imageFileName, blob);
+  }
 
   const item = {
     id,
@@ -575,6 +595,8 @@ async function createFrameItem(blob, meta = {}) {
     sourceDirName,
     imageFileName,
     textFileName,
+    storageMode: shouldPersist ? 'local' : 'session',
+    blob: shouldPersist ? null : blob,
     previewUrl: URL.createObjectURL(blob),
     seconds: meta.seconds || 0,
     width: meta.width || 0,
@@ -586,16 +608,22 @@ async function createFrameItem(blob, meta = {}) {
   };
 
   item.updatedAt = item.createdAt;
-  await writeFrameSidecar(item);
+  if (shouldPersist) await writeFrameSidecar(item);
 
   currentFrame.value = item;
   selectedId.value = item.id;
   const nextHistory = [item, ...history.value.filter(entry => entry.id !== item.id)];
   nextHistory.slice(MAX_HISTORY).forEach(revokePreviewUrl);
   history.value = nextHistory.slice(0, MAX_HISTORY);
-  await persistHistory();
+  if (shouldPersist) await persistHistory();
   clearFrameText();
   return item;
+}
+
+function showSessionCaptureReminder() {
+  if (hasOutputDirectoryPermission() || sessionCaptureReminderShown.value) return;
+  sessionCaptureReminderShown.value = true;
+  ElMessage.warning('未选择保存目录，本次截帧只保留在当前窗口会话中，刷新后会丢失。');
 }
 
 async function captureVideoFrame() {
@@ -605,10 +633,7 @@ async function captureVideoFrame() {
     return;
   }
 
-  if (!hasOutputDirectoryPermission()) {
-    ElMessage.warning('请先选择保存目录。');
-    return;
-  }
+  showSessionCaptureReminder();
 
   try {
     busy.value = true;
@@ -635,11 +660,6 @@ async function captureImagePreview() {
   const image = getImageElement();
   if (!image?.naturalWidth || !image?.naturalHeight) return;
 
-  if (!hasOutputDirectoryPermission()) {
-    ElMessage.warning('请先选择保存目录。');
-    return;
-  }
-
   try {
     busy.value = true;
     const canvas = getScratchCanvasElement();
@@ -648,11 +668,11 @@ async function captureImagePreview() {
     canvas.height = image.naturalHeight;
     canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
     const blob = await canvasToBlob(canvas, 'image/png');
-    await createFrameItem(blob, {
+    const item = await createFrameItem(blob, {
       width: canvas.width,
       height: canvas.height
     });
-    ElMessage.success('截图已保存');
+    ElMessage.success(item.storageMode === 'session' ? '截图已载入，本次会话有效' : '截图已保存');
   } catch (error) {
     ElMessage.error(error.message || '截图保存失败');
   } finally {
@@ -698,7 +718,7 @@ async function updateSelectedFrame(patch) {
   await writeFrameSidecar(next);
   currentFrame.value = next;
   history.value = history.value.map(item => (item.id === next.id ? next : item));
-  await persistHistory();
+  if (next.storageMode !== 'session') await persistHistory();
 }
 
 async function selectFrame(item) {
@@ -734,7 +754,7 @@ async function deleteHistory(id) {
       clearFrameText();
     }
   }
-  await persistHistory();
+  if (deleted?.storageMode !== 'session') await persistHistory();
 }
 
 async function recognizeCurrentFrame() {
@@ -791,7 +811,7 @@ async function saveCurrentText() {
       text: subtitleText.value.trim(),
       translation: translationText.value.trim()
     });
-    ElMessage.success('文本已保存');
+    ElMessage.success(currentFrame.value.storageMode === 'session' ? '文本已更新，本次会话有效' : '文本已保存');
   } catch (error) {
     ElMessage.error(error.message || '文本保存失败');
   }

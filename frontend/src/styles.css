@@ -560,6 +560,8 @@ input[type="range"] {
   border-radius: 8px;
   box-shadow: none;
   color: var(--ink);
+  height: 150px;
+  min-height: 150px;
   line-height: 1.55;
   text-wrap: pretty;
 }
@@ -569,15 +571,14 @@ input[type="range"] {
   font-weight: 700;
 }
 
-.translation-input {
-  margin-top: 4px;
-}
-
 .translation-input .el-textarea__inner {
   color: var(--danger);
 }
 
-.marked-token {
+.marked-preview mark {
+  border-radius: 4px;
+  padding: 0 3px;
+  background: transparent;
   color: #c43d32;
   font-weight: 900;
 }
@@ -592,6 +593,14 @@ input[type="range"] {
   font-size: 14px;
   line-height: 1.5;
   text-wrap: pretty;
+}
+
+.marked-preview > :first-child {
+  margin-top: 0;
+}
+
+.marked-preview > :last-child {
+  margin-bottom: 0;
 }
 
 .action-bar {
@@ -711,8 +720,24 @@ input[type="range"] {
   white-space: nowrap;
 }
 
+.history-copy {
+  min-width: 0;
+}
+
+.history-title-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .history-item strong {
   font-size: 13px;
+}
+
+.history-mode-tag {
+  flex: none;
 }
 
 .history-item small {
