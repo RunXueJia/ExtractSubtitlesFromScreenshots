@@ -644,6 +644,15 @@ input[type="range"] {
   border-color: #9fb1c3;
 }
 
+.download-button-link {
+  text-decoration: none;
+}
+
+.download-button-link.is-disabled {
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
 .history-list {
   display: grid;
   align-content: start;
@@ -809,7 +818,8 @@ input[type="range"] {
   .upload-actions button,
   .storage-panel button,
   .timeline-row button,
-  .action-bar button {
+  .action-bar button,
+  .action-bar .download-button-link {
     width: 100%;
   }
 

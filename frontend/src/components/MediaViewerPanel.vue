@@ -6,10 +6,15 @@
         ref="videoRef"
         playsinline
         :src="sourceType === 'video' ? sourceUrl : ''"
-        @loadedmetadata="syncTimeline"
+        @loadedmetadata="handleVideoLoaded"
         @durationchange="syncTimeline"
+        @ended="syncPlaybackState"
+        @pause="syncPlaybackState"
+        @play="syncPlaybackState"
+        @ratechange="syncPlaybackSettings"
         @seeked="syncTimeline"
         @timeupdate="syncTimeline"
+        @volumechange="syncPlaybackSettings"
       ></video>
       <img
         v-show="sourceType === 'image'"
@@ -27,24 +32,50 @@
     <div
       v-if="sourceType === 'video'"
       class="video-progress"
-      :class="{ 'is-scrubbing': isScrubbing, 'is-disabled': !progressEnabled }"
-      role="slider"
-      aria-label="视频进度"
-      :aria-valuemin="0"
-      :aria-valuemax="durationSeconds"
-      :aria-valuenow="currentTime"
-      :aria-valuetext="timeLabel"
-      :aria-disabled="!progressEnabled"
-      :tabindex="progressEnabled ? 0 : -1"
-      @keydown="handleProgressKeydown"
-      @pointerdown="handleProgressPointerDown"
-      @pointermove="handleProgressPointerMove"
-      @pointerup="handleProgressPointerUp"
-      @pointercancel="handleProgressPointerUp"
+      :class="{ 'is-disabled': !progressEnabled }"
     >
-      <div class="video-progress-track">
-        <div class="video-progress-fill" :style="{ width: progressPercent }"></div>
-        <div class="video-progress-thumb" :style="{ left: progressPercent }"></div>
+      <el-slider
+        v-model="currentTime"
+        :min="0"
+        :max="progressSliderMax"
+        :step="0.01"
+        :disabled="!progressEnabled"
+        :show-tooltip="true"
+        :format-tooltip="formatProgressTooltip"
+        :format-value-text="formatTime"
+        aria-label="视频进度"
+        @input="handleProgressInput"
+        @change="handleProgressChange"
+      />
+    </div>
+    <div v-if="sourceType === 'video'" class="video-controls" :class="{ 'is-disabled': !videoControlsEnabled }">
+      <el-button
+        class="playback-button"
+        type="primary"
+        :icon="isPlaying ? VideoPause : VideoPlay"
+        :disabled="!videoControlsEnabled"
+        :aria-label="isPlaying ? '暂停视频' : '播放视频'"
+        @click="togglePlayback"
+      >
+        {{ isPlaying ? '暂停' : '播放' }}
+      </el-button>
+      <div class="control-field volume-field">
+        <span class="control-label">
+          <el-icon><Headset /></el-icon>
+          音量
+        </span>
+        <el-slider
+          v-model="volumeSliderValue"
+          class="volume-slider"
+          :min="0"
+          :max="100"
+          :step="1"
+          :disabled="!videoControlsEnabled"
+          :show-tooltip="false"
+          aria-label="音量"
+          :format-value-text="formatVolumeValueText"
+        />
+        <span class="control-value">{{ volumePercent }}</span>
       </div>
     </div>
     <div class="timeline-row">
@@ -57,8 +88,8 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
-import { Camera } from '@element-plus/icons-vue';
+import { computed, nextTick, ref, watch } from 'vue';
+import { Camera, Clock, Headset, VideoPause, VideoPlay } from '@element-plus/icons-vue';
 
 import ModulePanel from './ModulePanel.vue';
 
@@ -84,13 +115,19 @@ const imageRef = ref(null);
 const currentTime = ref(0);
 const durationSeconds = ref(0);
 const timeLabel = ref('00:00.000 / 00:00.000');
-const isScrubbing = ref(false);
+const isSeeking = ref(false);
+const isPlaying = ref(false);
+const volume = ref(0.3);
+const playbackRate = ref(1);
+const playbackRateOptions = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
+const videoControlsEnabled = computed(() => props.sourceType === 'video' && Boolean(props.sourceUrl));
 const progressEnabled = computed(() => props.sourceType === 'video' && durationSeconds.value > 0);
-const progressPercent = computed(() => {
-  if (!progressEnabled.value) return '0%';
-  const percent = (currentTime.value / durationSeconds.value) * 100;
-  return `${Math.min(100, Math.max(0, percent))}%`;
+const progressSliderMax = computed(() => (progressEnabled.value ? durationSeconds.value : 0));
+const volumePercent = computed(() => `${Math.round(volume.value * 100)}%`);
+const volumeSliderValue = computed({
+  get: () => Math.round(volume.value * 100),
+  set: value => setVolume(value / 100)
 });
 
 function formatTime(seconds) {
@@ -110,8 +147,83 @@ function updateTimeline(current, duration) {
 function syncTimeline() {
   const video = videoRef.value;
   if (!video) return;
-  const current = video.currentTime || 0;
+  const current = isSeeking.value ? currentTime.value : video.currentTime || 0;
   updateTimeline(current, video.duration);
+}
+
+function syncPlaybackState() {
+  const video = videoRef.value;
+  isPlaying.value = Boolean(video && !video.paused && !video.ended);
+}
+
+function syncPlaybackSettings() {
+  const video = videoRef.value;
+  if (!video) return;
+
+  volume.value = video.volume;
+  playbackRate.value = video.playbackRate;
+  syncPlaybackState();
+}
+
+function applyPlaybackSettings() {
+  const video = videoRef.value;
+  if (!video) return;
+
+  video.volume = Math.min(1, Math.max(0, volume.value));
+  video.playbackRate = playbackRate.value;
+  syncPlaybackState();
+}
+
+function handleVideoLoaded() {
+  applyPlaybackSettings();
+  syncTimeline();
+}
+
+async function togglePlayback() {
+  const video = videoRef.value;
+  if (!video || !videoControlsEnabled.value) return;
+
+  if (video.paused || video.ended) {
+    if (video.ended) seekToTime(0);
+
+    try {
+      await video.play();
+    } catch {
+      syncPlaybackState();
+    }
+    return;
+  }
+
+  video.pause();
+  syncPlaybackState();
+}
+
+function setVolume(value) {
+  const nextVolume = Math.min(1, Math.max(0, Number(value)));
+  volume.value = Number.isFinite(nextVolume) ? nextVolume : 1;
+
+  const video = videoRef.value;
+  if (video) video.volume = volume.value;
+}
+
+function setPlaybackRate(value) {
+  const nextRate = Number(value);
+  playbackRate.value = playbackRateOptions.includes(nextRate) ? nextRate : 1;
+
+  const video = videoRef.value;
+  if (video) video.playbackRate = playbackRate.value;
+}
+
+function formatPlaybackRate(rate) {
+  return `${rate}x`;
+}
+
+function formatProgressTooltip(value) {
+  return formatTime(value);
+}
+
+function formatVolumeValueText(value) {
+  return `${Math.round(value)}%`;
 }
 
 function seekToTime(seconds) {
@@ -123,72 +235,28 @@ function seekToTime(seconds) {
   updateTimeline(nextTime, durationSeconds.value);
 }
 
-function seekFromPointer(event) {
+function handleProgressInput(value) {
   if (!progressEnabled.value) return;
-
-  const bounds = event.currentTarget.getBoundingClientRect();
-  const ratio = bounds.width > 0 ? (event.clientX - bounds.left) / bounds.width : 0;
-  seekToTime(ratio * durationSeconds.value);
+  isSeeking.value = true;
+  updateTimeline(value, durationSeconds.value);
+  seekToTime(value);
 }
 
-function handleProgressPointerDown(event) {
+function handleProgressChange(value) {
   if (!progressEnabled.value) return;
-
-  isScrubbing.value = true;
-  event.currentTarget.setPointerCapture?.(event.pointerId);
-  seekFromPointer(event);
-}
-
-function handleProgressPointerMove(event) {
-  if (!isScrubbing.value) return;
-  seekFromPointer(event);
-}
-
-function handleProgressPointerUp(event) {
-  if (!isScrubbing.value) return;
-
-  seekFromPointer(event);
-  event.currentTarget.releasePointerCapture?.(event.pointerId);
-  isScrubbing.value = false;
-}
-
-function handleProgressKeydown(event) {
-  if (!progressEnabled.value) return;
-
-  const smallStep = event.shiftKey ? 5 : 1;
-  const largeStep = 10;
-  const keyMap = {
-    ArrowLeft: -smallStep,
-    ArrowDown: -smallStep,
-    ArrowRight: smallStep,
-    ArrowUp: smallStep,
-    PageDown: -largeStep,
-    PageUp: largeStep
-  };
-
-  if (event.key === 'Home') {
-    event.preventDefault();
-    seekToTime(0);
-    return;
-  }
-
-  if (event.key === 'End') {
-    event.preventDefault();
-    seekToTime(durationSeconds.value);
-    return;
-  }
-
-  if (event.key in keyMap) {
-    event.preventDefault();
-    seekToTime(currentTime.value + keyMap[event.key]);
-  }
+  seekToTime(value);
+  isSeeking.value = false;
+  syncTimeline();
 }
 
 watch(
   () => [props.sourceType, props.sourceUrl],
-  () => {
+  async () => {
     updateTimeline(0, 0);
-    isScrubbing.value = false;
+    isSeeking.value = false;
+    isPlaying.value = false;
+    await nextTick();
+    applyPlaybackSettings();
   }
 );
 
@@ -201,51 +269,113 @@ defineExpose({
 <style scoped>
 .video-progress {
   width: 100%;
-  margin-top: 10px;
-  padding: 7px 2px;
-  cursor: pointer;
-  touch-action: none;
+  margin-top: 8px;
+  padding: 0 4px;
 }
 
 .video-progress.is-disabled {
-  cursor: default;
   opacity: 0.55;
 }
 
-.video-progress-track {
-  position: relative;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--line);
+.video-progress :deep(.el-slider) {
+  --el-slider-main-bg-color: var(--accent);
+  --el-slider-runway-bg-color: var(--line);
+  --el-slider-stop-bg-color: var(--panel);
+  --el-slider-button-size: 16px;
+  --el-slider-height: 8px;
+  margin: 0;
 }
 
-.video-progress-fill {
-  height: 100%;
-  border-radius: inherit;
-  background: var(--accent);
+.video-controls {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin-top: 6px;
 }
 
-.video-progress-thumb {
-  position: absolute;
-  top: 50%;
-  width: 16px;
-  height: 16px;
-  border: 3px solid var(--accent);
-  border-radius: 50%;
-  background: var(--panel);
-  box-shadow: 0 2px 8px rgba(28, 37, 45, 0.22);
-  transform: translate(-50%, -50%);
+.video-controls.is-disabled {
+  opacity: 0.7;
 }
 
-.video-progress:not(.is-disabled):hover .video-progress-thumb,
-.video-progress.is-scrubbing .video-progress-thumb,
-.video-progress:focus-visible .video-progress-thumb {
-  box-shadow: 0 0 0 5px rgba(23, 111, 107, 0.14), 0 2px 8px rgba(28, 37, 45, 0.22);
+.playback-button {
+  flex: none;
 }
 
-.video-progress:focus-visible {
+.control-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
   border-radius: 8px;
-  outline: 2px solid rgba(23, 111, 107, 0.34);
-  outline-offset: 2px;
+  background: var(--panel-muted);
+  color: var(--ink);
+}
+
+.control-label {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.control-label .el-icon {
+  color: var(--accent);
+}
+
+.volume-slider {
+  --el-slider-main-bg-color: var(--accent);
+  --el-slider-runway-bg-color: var(--line);
+  --el-slider-button-size: 14px;
+  --el-slider-height: 6px;
+  min-width: 92px;
+  flex: 1;
+  margin: 0;
+}
+
+.control-value {
+  flex: none;
+  min-width: 38px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  text-align: right;
+}
+
+.speed-select {
+  width: 128px;
+}
+
+.speed-field {
+  grid-column: 1 / -1;
+  justify-content: space-between;
+  height: 40px;
+}
+
+.speed-select :deep(.el-select__wrapper) {
+  min-height: 32px;
+  border-radius: 6px;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+@media (max-width: 620px) {
+  .video-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .control-field {
+    width: 100%;
+  }
 }
 </style>

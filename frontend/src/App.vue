@@ -30,6 +30,9 @@
         v-model:subtitle-text="subtitleText"
         v-model:translation-text="translationText"
         :current-frame="currentFrame"
+        :download-url="currentFrame?.downloadUrl || ''"
+        :download-file-name="currentFrame ? getFrameImageFileName(currentFrame) : ''"
+        :show-image-actions="showImageFileActions"
         :ocr-status="ocrStatus"
         :translate-status="translateStatus"
         :busy="busy"
@@ -39,14 +42,13 @@
         @reject-image="showUnsupportedSource"
         @save="saveCurrentText"
         @copy="copyCurrentFrame"
-        @download="downloadCurrentFrame"
       />
     </main>
   </div>
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 
 import { extractSubtitle, translateSubtitle } from './api/client.js';
@@ -88,6 +90,16 @@ const translationText = ref('');
 const ocrStatus = ref('未识别');
 const translateStatus = ref('待翻译');
 const sessionCaptureReminderShown = ref(false);
+const showImageFileActions = isHttpsOrLocalhostPage();
+
+function isLocalhostHostname(hostname) {
+  const value = String(hostname || '').toLowerCase();
+  return value === 'localhost' || value === '127.0.0.1' || value === '::1' || value === '[::1]' || value.endsWith('.localhost');
+}
+
+function isHttpsOrLocalhostPage() {
+  return window.location.protocol === 'https:' || isLocalhostHostname(window.location.hostname);
+}
 
 function readLegacyHistory() {
   for (const key of LEGACY_HISTORY_KEYS) {
@@ -394,6 +406,46 @@ function canvasToBlob(canvas, type = 'image/png', quality) {
   });
 }
 
+function normalizeFrameImageBlob(blob) {
+  if (blob.type === 'image/png') return blob;
+  return new Blob([blob], { type: 'image/png' });
+}
+
+function getFrameImageFileName(frame) {
+  return frame?.imageFileName || `${frame?.id || 'frame'}.png`;
+}
+
+function supportsNativeImageClipboard() {
+  const ClipboardItemConstructor = window.ClipboardItem;
+  if (!window.isSecureContext || !navigator.clipboard?.write || typeof ClipboardItemConstructor === 'undefined') {
+    return false;
+  }
+  return typeof ClipboardItemConstructor.supports !== 'function' || ClipboardItemConstructor.supports('image/png');
+}
+
+function createFrameDownloadUrl(blob) {
+  return URL.createObjectURL(normalizeFrameImageBlob(blob));
+}
+
+async function copyImageWithClipboardApi(blob) {
+  const ClipboardItemConstructor = window.ClipboardItem;
+  const type = blob.type || 'image/png';
+  if (!supportsNativeImageClipboard()) {
+    return false;
+  }
+
+  try {
+    await navigator.clipboard.write([
+      new ClipboardItemConstructor({
+        [type]: blob
+      })
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function writeFile(directoryHandle, fileName, content) {
   const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
   const writable = await fileHandle.createWritable();
@@ -466,16 +518,29 @@ async function loadFrameSidecar(item) {
 
 function revokePreviewUrl(item) {
   if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
+  if (item?.downloadUrl && item.downloadUrl !== item.previewUrl && item.downloadUrl.startsWith('blob:')) {
+    URL.revokeObjectURL(item.downloadUrl);
+  }
 }
 
 async function hydrateFrameItem(item) {
   const next = { ...item };
+  let blob = null;
 
-  if (!next.previewUrl) {
-    const blob = await loadFrameBlob(next);
-    next.previewUrl = URL.createObjectURL(blob);
-    if (!next.bytes) next.bytes = formatBytes(blob.size);
+  if (!next.previewUrl || !next.downloadUrl || !next.bytes) {
+    blob = normalizeFrameImageBlob(await loadFrameBlob(next));
   }
+
+  if (!next.previewUrl && blob) {
+    next.previewUrl = URL.createObjectURL(blob);
+  }
+  if (!next.downloadUrl && blob) {
+    next.downloadUrl = next.previewUrl || createFrameDownloadUrl(blob);
+  }
+  if (!next.bytes && blob) {
+    next.bytes = formatBytes(blob.size);
+  }
+  if (next.storageMode === 'session' && blob) next.blob = blob;
 
   if ((next.hasText || next.hasTranslation) && (typeof next.text !== 'string' || typeof next.translation !== 'string')) {
     const sidecar = await loadFrameSidecar(next);
@@ -503,6 +568,20 @@ async function hydrateHistoryFromStorage() {
   }
 
   history.value = nextHistory;
+}
+
+async function ensureCurrentFrameDownloadUrl() {
+  const frame = currentFrame.value;
+  if (!frame || frame.downloadUrl) return;
+
+  try {
+    const hydrated = await hydrateFrameItem(frame);
+    if (currentFrame.value?.id !== frame.id) return;
+    currentFrame.value = hydrated;
+    history.value = history.value.map(item => (item.id === hydrated.id ? hydrated : item));
+  } catch {
+    // A missing download URL should not interrupt the rest of the page.
+  }
 }
 
 function clearFrameText() {
@@ -576,16 +655,18 @@ function handleImageError() {
 }
 
 async function createFrameItem(blob, meta = {}) {
+  const imageBlob = normalizeFrameImageBlob(blob);
   const shouldPersist = canPersistFrame();
   const sourceDirName = getSourceDirectoryName(sourceName.value);
   const id = createFrameId();
   const imageFileName = `${id}.png`;
   const textFileName = `${id}.json`;
+  const previewUrl = URL.createObjectURL(imageBlob);
 
   if (shouldPersist) {
     const rootHandle = await ensureOutputDirectory();
     const directoryHandle = await rootHandle.getDirectoryHandle(sourceDirName, { create: true });
-    await writeFile(directoryHandle, imageFileName, blob);
+    await writeFile(directoryHandle, imageFileName, imageBlob);
   }
 
   const item = {
@@ -596,12 +677,13 @@ async function createFrameItem(blob, meta = {}) {
     imageFileName,
     textFileName,
     storageMode: shouldPersist ? 'local' : 'session',
-    blob: shouldPersist ? null : blob,
-    previewUrl: URL.createObjectURL(blob),
+    blob: shouldPersist ? null : imageBlob,
+    previewUrl,
+    downloadUrl: previewUrl,
     seconds: meta.seconds || 0,
     width: meta.width || 0,
     height: meta.height || 0,
-    bytes: formatBytes(blob.size),
+    bytes: formatBytes(imageBlob.size),
     text: '',
     translation: '',
     createdAt: new Date().toISOString()
@@ -821,33 +903,20 @@ async function copyCurrentFrame() {
   if (!currentFrame.value) return;
 
   try {
-    const blob = await loadFrameBlob(currentFrame.value);
-    if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
-      throw new Error('当前浏览器不支持直接复制图片，请使用下载。');
+    if (!supportsNativeImageClipboard()) {
+      ElMessage.warning('当前页面不支持直接复制图片，请在图片区域右击复制图片。');
+      return;
     }
-    await navigator.clipboard.write([
-      new ClipboardItem({
-        [blob.type || 'image/png']: blob
-      })
-    ]);
-    ElMessage.success('图片已复制');
+
+    const blob = normalizeFrameImageBlob(await loadFrameBlob(currentFrame.value));
+    if (await copyImageWithClipboardApi(blob)) {
+      ElMessage.success('图片已复制');
+      return;
+    }
+
+    ElMessage.warning('复制失败，请在图片区域右击复制图片。');
   } catch (error) {
     ElMessage.error(error.message || '复制失败');
-  }
-}
-
-async function downloadCurrentFrame() {
-  if (!currentFrame.value) return;
-  try {
-    const blob = await loadFrameBlob(currentFrame.value);
-    const objectUrl = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = objectUrl;
-    link.download = currentFrame.value.imageFileName || `${currentFrame.value.id}.png`;
-    link.click();
-    URL.revokeObjectURL(objectUrl);
-  } catch (error) {
-    ElMessage.error(error.message || '下载失败');
   }
 }
 
@@ -877,6 +946,14 @@ onMounted(async () => {
     storageError.value = error?.message || '保存目录读取失败。';
   }
 });
+
+watch(
+  currentFrame,
+  () => {
+    void ensureCurrentFrameDownloadUrl();
+  },
+  { immediate: true }
+);
 
 onBeforeUnmount(() => {
   revokeSourceUrl();

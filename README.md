@@ -276,6 +276,8 @@ systemctl reload nginx
 
 目录句柄和历史索引都保存在浏览器 IndexedDB，不保存截图 base64。该能力依赖 Chromium 系浏览器的 File System Access API。
 
+在 `http://192.168.x.x` 这类非 HTTPS 局域网地址访问时，浏览器不会开放真正的图片剪贴板写入能力，也可能限制下载行为。应用会隐藏“复制图片”和“下载 PNG”按钮。要使用这两个按钮以及目录保存能力，请通过 HTTPS 或 `localhost` 访问。
+
 ## 接口
 
 - `POST /api/extract-subtitle`

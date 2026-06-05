@@ -134,19 +134,25 @@
         >保存文本</el-button
       >
       <el-button
+        v-if="showImageActions"
         class="action-button action-button--primary"
         :icon="CopyDocument"
         :disabled="!currentFrame || busy"
         @click="$emit('copy')">
         复制图片
       </el-button>
-      <el-button
-        class="action-button action-button--primary"
-        :icon="Download"
-        :disabled="!currentFrame || busy"
-        @click="$emit('download')">
-        下载 PNG
-      </el-button>
+      <a
+        v-if="showImageActions"
+        class="el-button el-button--primary action-button action-button--primary download-button-link"
+        :class="{ 'is-disabled': !canDownload }"
+        :href="canDownload ? downloadUrl : undefined"
+        :download="canDownload ? downloadFileName : undefined"
+        :aria-disabled="!canDownload"
+        :tabindex="canDownload ? 0 : -1"
+        @click="handleDownloadClick">
+        <span class="el-icon"><Download /></span>
+        <span>下载 PNG</span>
+      </a>
     </div>
   </ModulePanel>
 </template>
@@ -184,6 +190,18 @@ const props = defineProps({
   currentFrame: {
     type: Object,
     default: null,
+  },
+  downloadUrl: {
+    type: String,
+    default: "",
+  },
+  downloadFileName: {
+    type: String,
+    default: "",
+  },
+  showImageActions: {
+    type: Boolean,
+    default: true,
   },
   cropTop: {
     type: Number,
@@ -224,7 +242,6 @@ const emit = defineEmits([
   "translate",
   "save",
   "copy",
-  "download",
   "select-image",
   "reject-image",
 ]);
@@ -246,6 +263,9 @@ const frameMeta = computed(() => {
 });
 
 const canImportImage = computed(() => !props.currentFrame && !props.busy);
+const canDownload = computed(() =>
+  Boolean(props.showImageActions && props.currentFrame && !props.busy && props.downloadUrl),
+);
 const markedSubtitleHtml = computed(() =>
   renderMarkdownSubtitle(props.subtitleText),
 );
@@ -263,6 +283,11 @@ const translateTagType = computed(() =>
       ? "success"
       : "info",
 );
+
+function handleDownloadClick(event) {
+  if (canDownload.value) return;
+  event.preventDefault();
+}
 
 const regionLabel = computed(() => `${props.cropTop}% - ${props.cropBottom}%`);
 const regionOverlayStyle = computed(() => {
