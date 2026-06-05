@@ -1,159 +1,48 @@
 <template>
   <div class="app-shell">
     <aside class="source-panel">
-      <header class="brand">
-        <span class="brand-mark">ES</span>
-        <div>
-          <h1>字幕截图提取</h1>
-          <p>视频当前帧与截图字幕识别</p>
-        </div>
-      </header>
-
-      <section
-        class="upload-zone"
-        :class="{ 'drag-over': isDragging }"
-        @dragover.prevent="isDragging = true"
-        @dragleave="isDragging = false"
-        @drop.prevent="handleDrop"
-      >
-        <input ref="videoInputRef" type="file" accept="video/*" hidden @change="handleVideoChange" />
-        <input ref="imageInputRef" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="handleImageChange" />
-        <div>
-          <strong>载入素材</strong>
-          <span>{{ sourceName || '未选择' }}</span>
-        </div>
-        <div class="upload-actions">
-          <el-button type="primary" :icon="VideoPlay" @click="videoInputRef?.click()">选择视频</el-button>
-          <el-button :icon="Picture" @click="imageInputRef?.click()">选择截图</el-button>
-        </div>
-      </section>
-
-      <section class="storage-panel" :class="{ attention: storageNeedsSetup }">
-        <div>
-          <strong>保存目录</strong>
-          <span>{{ storageLabel }}</span>
-        </div>
-        <el-button :icon="Download" :disabled="busy" @click="chooseOutputDirectory">选择目录</el-button>
-      </section>
-
-      <section class="viewer-panel">
-        <div class="media-wrap">
-          <video
-            v-show="sourceType === 'video'"
-            ref="videoRef"
-            playsinline
-            controls
-            @loadedmetadata="syncTimeline"
-            @durationchange="syncTimeline"
-            @timeupdate="syncTimeline"
-          ></video>
-          <img v-show="sourceType === 'image'" ref="imageRef" alt="" />
-          <div v-if="!sourceType" class="empty-state">
-            <h2>等待素材</h2>
-            <p>视频截帧在浏览器内完成。</p>
-          </div>
-        </div>
-        <div class="timeline-row">
-          <el-button type="primary" :icon="Camera" :disabled="sourceType !== 'video' || busy" @click="captureVideoFrame">
-            截取当前帧
-          </el-button>
-          <span>{{ timeLabel }}</span>
-        </div>
-      </section>
-
-      <section class="region-panel">
-        <div class="panel-title">
-          <h2>字幕区域</h2>
-          <el-tag type="info">{{ regionLabel }}</el-tag>
-        </div>
-        <label>
-          <span>顶部</span>
-          <el-slider v-model="cropTop" :min="0" :max="90" :step="1" @input="normalizeRegion" />
-        </label>
-        <label>
-          <span>底部</span>
-          <el-slider v-model="cropBottom" :min="10" :max="100" :step="1" @input="normalizeRegion" />
-        </label>
-        <el-button type="primary" :icon="View" :loading="ocrStatus === '识别中'" :disabled="!currentFrame || busy" @click="recognizeCurrentFrame">
-          识别字幕
-        </el-button>
-      </section>
+      <BrandHeader />
+      <SourceUploadPanel :source-name="sourceName" @select-source="handleSourceFile" @reject-source="showUnsupportedSource" />
+      <StoragePanel :storage-label="storageLabel" :attention="storageNeedsSetup" :busy="busy" @choose="chooseOutputDirectory" />
+      <MediaViewerPanel
+        ref="mediaViewerRef"
+        :source-type="sourceType"
+        :time-label="timeLabel"
+        :busy="busy"
+        @sync-timeline="syncTimeline"
+        @capture="captureVideoFrame"
+      />
+      <SubtitleRegionPanel
+        v-model:crop-top="cropTop"
+        v-model:crop-bottom="cropBottom"
+        :region-label="regionLabel"
+        :current-frame="currentFrame"
+        :busy="busy"
+        :ocr-status="ocrStatus"
+        @normalize-region="normalizeRegion"
+        @recognize="recognizeCurrentFrame"
+      />
     </aside>
 
     <main class="workspace">
-      <section class="result-panel">
-        <div class="panel-title">
-          <h2>截帧预览</h2>
-          <el-tag type="info">{{ frameMeta }}</el-tag>
-        </div>
-        <div class="frame-grid">
-          <div class="frame-preview">
-            <img v-if="currentFrame?.previewUrl" :src="currentFrame.previewUrl" alt="" />
-            <el-empty v-else-if="currentFrame" description="需要重新授权目录" />
-            <el-empty v-else description="暂无截帧" />
-            <canvas ref="scratchCanvasRef" hidden></canvas>
-          </div>
-
-          <div class="text-stack">
-            <div class="panel-title compact">
-              <h2>英文字幕</h2>
-              <el-tag :type="ocrTagType">{{ ocrStatus }}</el-tag>
-            </div>
-            <el-input
-              v-model="subtitleText"
-              class="subtitle-input"
-              type="textarea"
-              :autosize="{ minRows: 5, maxRows: 10 }"
-              resize="none"
-              placeholder="识别结果"
-            />
-            <div v-if="markedSubtitleHtml" class="marked-preview" v-html="markedSubtitleHtml"></div>
-
-            <div class="panel-title compact">
-              <h2>中文翻译</h2>
-              <el-tag :type="translateTagType">{{ translateStatus }}</el-tag>
-            </div>
-            <el-input
-              v-model="translationText"
-              class="translation-input"
-              type="textarea"
-              :autosize="{ minRows: 4, maxRows: 8 }"
-              resize="none"
-              placeholder="翻译结果"
-            />
-          </div>
-        </div>
-
-        <div class="action-bar">
-          <el-button :icon="Switch" :loading="translateStatus === '翻译中'" :disabled="!currentFrame || busy" @click="translateCurrentText">
-            翻译
-          </el-button>
-          <el-button :icon="DocumentChecked" :disabled="!currentFrame || busy" @click="saveCurrentText">保存文本</el-button>
-          <el-button :icon="CopyDocument" :disabled="!currentFrame || busy" @click="copyCurrentFrame">复制图片</el-button>
-          <el-button :icon="Download" :disabled="!currentFrame || busy" @click="downloadCurrentFrame">下载 PNG</el-button>
-        </div>
-      </section>
-
-      <section class="history-panel">
-        <div class="panel-title">
-          <h2>本地历史</h2>
-          <el-tag>{{ history.length }}</el-tag>
-        </div>
-        <el-empty v-if="!history.length" description="暂无历史" />
-        <div v-else class="history-list">
-          <div v-for="item in history" :key="item.id" class="history-row">
-            <button class="history-item" :class="{ active: selectedId === item.id }" type="button" @click="selectFrame(item)">
-              <img v-if="item.previewUrl" :src="item.previewUrl" alt="" />
-              <span v-else class="history-thumb">PNG</span>
-              <span>
-                <strong>{{ item.sourceName }}</strong>
-                <small>{{ item.text || item.translation || item.textPreview || item.translationPreview || formatTime(item.seconds) }}</small>
-              </span>
-            </button>
-            <el-button type="danger" plain @click="deleteHistory(item.id)">删除</el-button>
-          </div>
-        </div>
-      </section>
+      <RecognitionResultPanel
+        ref="resultPanelRef"
+        v-model:subtitle-text="subtitleText"
+        v-model:translation-text="translationText"
+        :current-frame="currentFrame"
+        :frame-meta="frameMeta"
+        :marked-subtitle-html="markedSubtitleHtml"
+        :ocr-status="ocrStatus"
+        :translate-status="translateStatus"
+        :ocr-tag-type="ocrTagType"
+        :translate-tag-type="translateTagType"
+        :busy="busy"
+        @translate="translateCurrentText"
+        @save="saveCurrentText"
+        @copy="copyCurrentFrame"
+        @download="downloadCurrentFrame"
+      />
+      <HistoryPanel :history="history" :selected-id="selectedId" :format-time="formatTime" @select="selectFrame" @delete="deleteHistory" />
     </main>
   </div>
 </template>
@@ -161,18 +50,15 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import { ElMessage } from 'element-plus';
-import {
-  Camera,
-  CopyDocument,
-  DocumentChecked,
-  Download,
-  Picture,
-  Switch,
-  VideoPlay,
-  View
-} from '@element-plus/icons-vue';
 
 import { extractSubtitle, translateSubtitle } from './api/client.js';
+import BrandHeader from './components/BrandHeader.vue';
+import HistoryPanel from './components/HistoryPanel.vue';
+import MediaViewerPanel from './components/MediaViewerPanel.vue';
+import RecognitionResultPanel from './components/RecognitionResultPanel.vue';
+import SourceUploadPanel from './components/SourceUploadPanel.vue';
+import StoragePanel from './components/StoragePanel.vue';
+import SubtitleRegionPanel from './components/SubtitleRegionPanel.vue';
 
 const LEGACY_HISTORY_KEYS = ['extract-subtitles.history.v2', 'extract-subtitles.history.v1'];
 const MAX_HISTORY = 20;
@@ -184,11 +70,8 @@ const STORAGE_HISTORY_STORE_NAME = 'history';
 const OUTPUT_DIRECTORY_KEY = 'outputDirectory';
 const HISTORY_INDEX_KEY = 'items';
 
-const videoInputRef = ref(null);
-const imageInputRef = ref(null);
-const videoRef = ref(null);
-const imageRef = ref(null);
-const scratchCanvasRef = ref(null);
+const mediaViewerRef = ref(null);
+const resultPanelRef = ref(null);
 
 const outputDirectoryHandle = shallowRef(null);
 const outputDirectoryName = ref('');
@@ -201,7 +84,6 @@ const currentFrame = ref(null);
 const selectedId = ref('');
 const history = ref([]);
 const busy = ref(false);
-const isDragging = ref(false);
 const cropTop = ref(55);
 const cropBottom = ref(82);
 const timeLabel = ref('00:00.000 / 00:00.000');
@@ -680,6 +562,26 @@ function revokeSourceUrl() {
   sourceUrl.value = '';
 }
 
+function getVideoElement() {
+  return mediaViewerRef.value?.getVideoElement?.() || null;
+}
+
+function getImageElement() {
+  return mediaViewerRef.value?.getImageElement?.() || null;
+}
+
+function getScratchCanvasElement() {
+  return resultPanelRef.value?.getScratchCanvasElement?.() || null;
+}
+
+function handleSourceFile({ file, type }) {
+  setSource(file, type);
+}
+
+function showUnsupportedSource() {
+  ElMessage.warning('只支持视频或图片文件。');
+}
+
 async function setSource(file, type) {
   if (!file) return;
   revokeSourceUrl();
@@ -692,14 +594,25 @@ async function setSource(file, type) {
 
   await nextTick();
   if (type === 'video') {
-    videoRef.value.src = sourceUrl.value;
+    const video = getVideoElement();
+    if (!video) {
+      ElMessage.error('视频预览尚未准备好。');
+      return;
+    }
+
+    video.src = sourceUrl.value;
     syncTimeline();
     ElMessage.success('视频已载入');
     return;
   }
 
-  imageRef.value.src = sourceUrl.value;
-  imageRef.value.onload = async () => {
+  const image = getImageElement();
+  if (!image) {
+    ElMessage.error('截图预览尚未准备好。');
+    return;
+  }
+
+  image.onload = async () => {
     if (!hasOutputDirectoryPermission()) {
       ElMessage.warning('截图已载入，请先选择保存目录。');
       return;
@@ -707,32 +620,14 @@ async function setSource(file, type) {
 
     await captureImagePreview();
   };
-  imageRef.value.onerror = () => {
+  image.onerror = () => {
     ElMessage.error('截图载入失败。');
   };
-}
-
-function handleVideoChange(event) {
-  setSource(event.target.files?.[0], 'video');
-  event.target.value = '';
-}
-
-function handleImageChange(event) {
-  setSource(event.target.files?.[0], 'image');
-  event.target.value = '';
-}
-
-function handleDrop(event) {
-  isDragging.value = false;
-  const file = event.dataTransfer.files?.[0];
-  if (!file) return;
-  if (file.type.startsWith('video/')) setSource(file, 'video');
-  else if (file.type.startsWith('image/')) setSource(file, 'image');
-  else ElMessage.warning('只支持视频或图片文件。');
+  image.src = sourceUrl.value;
 }
 
 function syncTimeline() {
-  const video = videoRef.value;
+  const video = getVideoElement();
   if (!video) return;
   const current = video.currentTime || 0;
   const duration = Number.isFinite(video.duration) ? video.duration : 0;
@@ -780,7 +675,7 @@ async function createFrameItem(blob, meta = {}) {
 }
 
 async function captureVideoFrame() {
-  const video = videoRef.value;
+  const video = getVideoElement();
   if (!video?.videoWidth || !video?.videoHeight) {
     ElMessage.warning('视频尚未准备好。');
     return;
@@ -793,7 +688,8 @@ async function captureVideoFrame() {
 
   try {
     busy.value = true;
-    const canvas = scratchCanvasRef.value;
+    const canvas = getScratchCanvasElement();
+    if (!canvas) throw new Error('截图画布尚未准备好。');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -812,7 +708,7 @@ async function captureVideoFrame() {
 }
 
 async function captureImagePreview() {
-  const image = imageRef.value;
+  const image = getImageElement();
   if (!image?.naturalWidth || !image?.naturalHeight) return;
 
   if (!hasOutputDirectoryPermission()) {
@@ -822,7 +718,8 @@ async function captureImagePreview() {
 
   try {
     busy.value = true;
-    const canvas = scratchCanvasRef.value;
+    const canvas = getScratchCanvasElement();
+    if (!canvas) throw new Error('截图画布尚未准备好。');
     canvas.width = image.naturalWidth;
     canvas.height = image.naturalHeight;
     canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
@@ -862,7 +759,8 @@ async function prepareSubtitleImage(frame) {
   const cropHeight = Math.max(1, Math.floor(image.naturalHeight * ((cropBottom.value - cropTop.value) / 100)));
   const scale = 3;
 
-  const canvas = scratchCanvasRef.value;
+  const canvas = getScratchCanvasElement();
+  if (!canvas) throw new Error('截图画布尚未准备好。');
   canvas.width = cropWidth * scale;
   canvas.height = cropHeight * scale;
   const context = canvas.getContext('2d');
