@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>字幕截图提取 UI 设计稿 v1</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #edf3f7;
+      --surface: #ffffff;
+      --surface-soft: #f7fafc;
+      --surface-mint: #effaf7;
+      --ink: #142331;
+      --muted: #687888;
+      --soft-muted: #8a9aab;
+      --line: #d8e3ec;
+      --line-strong: #c5d3df;
+      --teal: #167a74;
+      --teal-dark: #0e5754;
+      --teal-soft: #e7f6f3;
+      --blue: #3779bd;
+      --blue-soft: #eaf3fb;
+      --amber: #b86f1e;
+      --amber-soft: #fff5e7;
+      --coral: #e2574c;
+      --coral-soft: #fff0ec;
+      --shadow: 0 18px 44px rgba(24, 42, 58, 0.10);
+      --shadow-soft: 0 10px 24px rgba(24, 42, 58, 0.07);
+      font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+    }
+
+    body {
+      margin: 0;
+      overflow: hidden;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.65), rgba(237, 243, 247, 0.70)),
+        var(--bg);
+      color: var(--ink);
+    }
+
+    button,
+    textarea {
+      font: inherit;
+    }
+
+    .app-canvas {
+      width: 1600px;
+      height: 960px;
+      padding: 18px;
+      background: var(--bg);
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: 370px minmax(0, 1fr);
+      gap: 18px;
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+    }
+
+    .sidebar,
+    .workspace {
+      min-width: 0;
+      min-height: 0;
+    }
+
+    .sidebar {
+      display: grid;
+      grid-template-rows: auto auto auto 372px minmax(0, 1fr);
+      gap: 12px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 2px 4px 4px;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 48px;
+      height: 48px;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--teal-dark);
+      color: #ffffff;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .brand h1,
+    .brand p,
+    .panel-title h2,
+    .panel-title p,
+    .card-copy strong,
+    .card-copy span,
+    .history-copy strong,
+    .history-copy small {
+      margin: 0;
+    }
+
+    .brand h1 {
+      font-size: 22px;
+      line-height: 1.18;
+    }
+
+    .brand p {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .quick-card,
+    .media-panel,
+    .history-panel,
+    .workspace {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .quick-card {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+    }
+
+    .quick-card.is-active {
+      border-color: rgba(22, 122, 116, 0.34);
+      background: linear-gradient(180deg, #ffffff, #f6fcfb);
+    }
+
+    .card-icon {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--teal-soft);
+      color: var(--teal-dark);
+      font-size: 17px;
+      font-weight: 900;
+    }
+
+    .quick-card:nth-of-type(3) .card-icon {
+      background: var(--blue-soft);
+      color: var(--blue);
+    }
+
+    .card-copy {
+      min-width: 0;
+    }
+
+    .card-copy strong,
+    .history-copy strong {
+      display: block;
+      overflow: hidden;
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 800;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .card-copy span {
+      display: block;
+      overflow: hidden;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      min-height: 34px;
+      padding: 0 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: #ffffff;
+      color: #345;
+      font-size: 13px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .button.primary {
+      border-color: var(--teal);
+      background: var(--teal);
+      color: #ffffff;
+      box-shadow: 0 8px 18px rgba(22, 122, 116, 0.16);
+    }
+
+    .button.soft {
+      border-color: transparent;
+      background: var(--teal-soft);
+      color: var(--teal-dark);
+    }
+
+    .button.ghost {
+      background: var(--surface-soft);
+      color: #4d5c6b;
+    }
+
+    .icon-line {
+      position: relative;
+      width: 14px;
+      height: 14px;
+      flex: 0 0 auto;
+    }
+
+    .icon-line::before,
+    .icon-line::after {
+      position: absolute;
+      border: 2px solid currentColor;
+      content: "";
+    }
+
+    .icon-play::before {
+      inset: 1px;
+      border-radius: 999px;
+    }
+
+    .icon-play::after {
+      top: 4px;
+      left: 5px;
+      width: 0;
+      height: 0;
+      border-width: 4px 0 4px 6px;
+      border-color: transparent transparent transparent currentColor;
+    }
+
+    .icon-folder::before {
+      right: 1px;
+      bottom: 2px;
+      left: 1px;
+      height: 9px;
+      border-radius: 3px;
+    }
+
+    .icon-folder::after {
+      top: 2px;
+      left: 2px;
+      width: 6px;
+      height: 4px;
+      border-bottom: 0;
+      border-radius: 3px 3px 0 0;
+    }
+
+    .icon-scan::before {
+      inset: 1px;
+      border-width: 2px 0;
+    }
+
+    .icon-scan::after {
+      top: 6px;
+      right: 1px;
+      left: 1px;
+      border-width: 1px 0 0;
+    }
+
+    .icon-switch::before {
+      top: 3px;
+      right: 1px;
+      left: 1px;
+      height: 0;
+      border-width: 2px 0 0;
+    }
+
+    .icon-switch::after {
+      right: 1px;
+      bottom: 2px;
+      left: 1px;
+      height: 0;
+      border-width: 2px 0 0;
+    }
+
+    .icon-download::before {
+      top: 1px;
+      left: 6px;
+      height: 8px;
+      border-width: 0 2px 0 0;
+    }
+
+    .icon-download::after {
+      right: 1px;
+      bottom: 2px;
+      left: 1px;
+      height: 5px;
+      border-width: 0 0 2px;
+      border-radius: 0 0 3px 3px;
+    }
+
+    .media-panel,
+    .history-panel,
+    .workspace {
+      padding: 14px;
+    }
+
+    .panel-title {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .panel-title h2 {
+      font-size: 16px;
+      line-height: 1.25;
+    }
+
+    .panel-title p {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .tag,
+    .metric-pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 0 9px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface-soft);
+      color: #607083;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .tag.success {
+      border-color: #cde9dd;
+      background: #f1fbf5;
+      color: #2a7558;
+    }
+
+    .tag.warning {
+      border-color: #f3d9a5;
+      background: var(--amber-soft);
+      color: var(--amber);
+    }
+
+    .media-wrap {
+      position: relative;
+      display: grid;
+      height: 214px;
+      place-items: center;
+      overflow: hidden;
+      border: 1px solid #222c31;
+      border-radius: 8px;
+      background: #101719;
+    }
+
+    .media-empty {
+      display: grid;
+      gap: 10px;
+      place-items: center;
+      color: #ffffff;
+      text-align: center;
+    }
+
+    .media-empty strong {
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .media-empty span {
+      color: rgba(255, 255, 255, 0.66);
+      font-size: 13px;
+    }
+
+    .timeline {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .timeline-track {
+      position: relative;
+      height: 6px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e3ebf2;
+    }
+
+    .timeline-track::before {
+      position: absolute;
+      inset: 0 70% 0 0;
+      border-radius: inherit;
+      background: var(--teal);
+      content: "";
+    }
+
+    .timecode {
+      color: #4d5d6f;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .history-list {
+      display: grid;
+      gap: 9px;
+    }
+
+    .history-row {
+      display: grid;
+      grid-template-columns: 54px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 9px;
+      min-height: 68px;
+      padding: 7px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-soft);
+    }
+
+    .history-row.is-selected {
+      border-color: rgba(22, 122, 116, 0.52);
+      background: #ffffff;
+      box-shadow: 0 0 0 3px rgba(22, 122, 116, 0.08);
+    }
+
+    .history-thumb {
+      position: relative;
+      width: 54px;
+      height: 54px;
+      overflow: hidden;
+      border-radius: 6px;
+      background:
+        linear-gradient(180deg, rgba(22, 122, 116, 0.18), rgba(226, 87, 76, 0.12)),
+        #dce7ed;
+    }
+
+    .history-thumb::before {
+      position: absolute;
+      top: 10px;
+      left: 16px;
+      width: 22px;
+      height: 24px;
+      border-radius: 999px 999px 8px 8px;
+      background: #24333a;
+      content: "";
+    }
+
+    .history-thumb::after {
+      position: absolute;
+      right: 8px;
+      bottom: 10px;
+      left: 8px;
+      height: 8px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.80);
+      content: "";
+    }
+
+    .history-copy {
+      min-width: 0;
+    }
+
+    .history-copy small {
+      display: block;
+      overflow: hidden;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .delete-btn {
+      display: grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      border: 1px solid #f0c0bd;
+      border-radius: 8px;
+      background: #fff7f6;
+      color: #c74840;
+      font-weight: 900;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+
+    .workspace-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .workspace-title {
+      min-width: 0;
+    }
+
+    .workspace-title h2 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
+    .workspace-title p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .workspace-tools {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .segmented {
+      display: inline-grid;
+      grid-template-columns: repeat(2, auto);
+      gap: 3px;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-soft);
+    }
+
+    .segment {
+      padding: 5px 10px;
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .segment.is-active {
+      background: #ffffff;
+      color: var(--teal-dark);
+      box-shadow: 0 2px 8px rgba(24, 42, 58, 0.08);
+    }
+
+    .workspace-body {
+      display: grid;
+      grid-template-rows: minmax(0, 1.08fr) minmax(255px, 0.82fr);
+      gap: 14px;
+      min-height: 0;
+      padding-top: 14px;
+    }
+
+    .preview-stage {
+      position: relative;
+      display: grid;
+      min-height: 0;
+      place-items: center;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background:
+        linear-gradient(90deg, rgba(216, 227, 236, 0.40) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(216, 227, 236, 0.40) 1px, transparent 1px),
+        #f7fbfd;
+      background-size: 30px 30px;
+    }
+
+    .stage-meta {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .crop-control {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      display: grid;
+      gap: 8px;
+      width: 194px;
+      padding: 12px;
+      border: 1px solid rgba(22, 122, 116, 0.18);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.88);
+      box-shadow: 0 10px 28px rgba(24, 42, 58, 0.08);
+    }
+
+    .crop-control strong {
+      font-size: 13px;
+    }
+
+    .crop-control span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .crop-track {
+      position: relative;
+      height: 8px;
+      border-radius: 999px;
+      background: #e4ecf2;
+    }
+
+    .crop-track::before {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 55%;
+      width: 27%;
+      border-radius: inherit;
+      background: var(--coral);
+      content: "";
+    }
+
+    .phone-frame {
+      position: relative;
+      width: 226px;
+      height: 402px;
+      overflow: hidden;
+      border: 6px solid #111a1f;
+      border-radius: 10px;
+      background: #111a1f;
+      box-shadow: 0 24px 55px rgba(13, 28, 36, 0.22);
+    }
+
+    .video-scene {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      background:
+        linear-gradient(135deg, rgba(43, 67, 70, 0.84), rgba(45, 38, 34, 0.90) 42%, rgba(22, 28, 28, 0.96)),
+        #202a2b;
+    }
+
+    .video-scene::before {
+      position: absolute;
+      top: 0;
+      right: 0;
+      left: 0;
+      height: 46%;
+      background: linear-gradient(135deg, rgba(100, 132, 120, 0.55), rgba(18, 24, 27, 0.20));
+      content: "";
+    }
+
+    .face {
+      position: absolute;
+      top: 70px;
+      left: 71px;
+      width: 82px;
+      height: 106px;
+      border-radius: 38px 38px 34px 34px;
+      background:
+        linear-gradient(90deg, rgba(97, 54, 38, 0.18), transparent 55%),
+        #d9a982;
+      box-shadow: inset -13px -10px 22px rgba(88, 48, 31, 0.20);
+    }
+
+    .hair {
+      position: absolute;
+      top: 46px;
+      left: 58px;
+      width: 108px;
+      height: 76px;
+      border-radius: 48px 48px 30px 22px;
+      background: #1b1a18;
+      transform: rotate(-8deg);
+    }
+
+    .hair::after {
+      position: absolute;
+      top: 14px;
+      right: -8px;
+      width: 45px;
+      height: 88px;
+      border-radius: 24px;
+      background: #22201d;
+      content: "";
+      transform: rotate(12deg);
+    }
+
+    .glasses {
+      position: absolute;
+      top: 117px;
+      left: 68px;
+      width: 90px;
+      height: 18px;
+      border-top: 3px solid rgba(32, 30, 26, 0.85);
+      border-radius: 6px;
+    }
+
+    .glasses::before,
+    .glasses::after {
+      position: absolute;
+      top: -6px;
+      width: 30px;
+      height: 20px;
+      border: 3px solid rgba(32, 30, 26, 0.85);
+      border-radius: 9px;
+      content: "";
+    }
+
+    .glasses::before {
+      left: 0;
+    }
+
+    .glasses::after {
+      right: 0;
+    }
+
+    .suit {
+      position: absolute;
+      right: 22px;
+      bottom: -28px;
+      left: 30px;
+      height: 162px;
+      border-radius: 44px 44px 0 0;
+      background:
+        linear-gradient(108deg, #272f31 0 32%, #f1ece2 33% 58%, #6b4b37 59% 64%, #1f272a 65%);
+    }
+
+    .video-mark {
+      position: absolute;
+      right: 11px;
+      bottom: 10px;
+      color: rgba(255, 255, 255, 0.86);
+      font-size: 10px;
+      font-weight: 800;
+      text-align: right;
+    }
+
+    .subtitle-overlay {
+      position: absolute;
+      right: 0;
+      bottom: 71px;
+      left: 0;
+      height: 78px;
+      border: 2px solid var(--coral);
+      background: rgba(226, 87, 76, 0.14);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.70), 0 10px 24px rgba(142, 37, 32, 0.16);
+    }
+
+    .subtitle-overlay::before,
+    .subtitle-overlay::after {
+      position: absolute;
+      left: 50%;
+      width: 58px;
+      height: 4px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 1px 5px rgba(118, 35, 31, 0.20);
+      content: "";
+      transform: translateX(-50%);
+    }
+
+    .subtitle-overlay::before {
+      top: -4px;
+    }
+
+    .subtitle-overlay::after {
+      bottom: -4px;
+    }
+
+    .subtitle-line {
+      position: absolute;
+      right: 12px;
+      bottom: 17px;
+      left: 12px;
+      color: #f5d7d2;
+      font-size: 10px;
+      font-weight: 800;
+      text-align: center;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+    }
+
+    .text-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      min-height: 0;
+    }
+
+    .text-panel {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      min-height: 0;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-soft);
+    }
+
+    .text-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .text-panel-head h3 {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.2;
+    }
+
+    .editor {
+      min-height: 0;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      line-height: 1.6;
+    }
+
+    .editor.english {
+      color: #102031;
+      font-size: 20px;
+      font-weight: 850;
+    }
+
+    .editor.chinese {
+      color: #a94d2b;
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    .marked-note {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border: 1px solid #f0d4c9;
+      border-radius: 8px;
+      background: #fff8f5;
+      color: #3a4753;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .marked-note mark {
+      padding: 0 3px;
+      border-radius: 4px;
+      background: #ffe3de;
+      color: #c5483e;
+      font-weight: 900;
+    }
+
+    .translation-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .workspace-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+    }
+
+    .footer-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .footer-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      min-width: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-canvas">
+    <div class="app-shell">
+      <aside class="sidebar">
+        <header class="brand">
+          <span class="brand-mark">ES</span>
+          <div>
+            <h1>字幕截图提取</h1>
+            <p>视频当前帧与截图字幕识别</p>
+          </div>
+        </header>
+
+        <section class="quick-card is-active">
+          <span class="card-icon">01</span>
+          <div class="card-copy">
+            <strong>载入素材</strong>
+            <span>share_e32270ea0376d414f9f366a34aa2807.png</span>
+          </div>
+          <button class="button primary"><span class="icon-line icon-play"></span>选择视频</button>
+        </section>
+
+        <section class="quick-card">
+          <span class="card-icon">02</span>
+          <div class="card-copy">
+            <strong>保存目录</strong>
+            <span>截图测试 · 已授权</span>
+          </div>
+          <button class="button"><span class="icon-line icon-folder"></span>选择目录</button>
+        </section>
+
+        <section class="media-panel">
+          <div class="panel-title">
+            <div>
+              <h2>素材预览</h2>
+              <p>当前帧可直接进入识别</p>
+            </div>
+            <span class="tag success">就绪</span>
+          </div>
+          <div class="media-wrap">
+            <div class="media-empty">
+              <strong>等待素材</strong>
+              <span>视频截帧在浏览器内完成</span>
+            </div>
+          </div>
+          <div class="timeline">
+            <span class="timecode">00:00.000</span>
+            <span class="timeline-track"></span>
+            <span class="timecode">00:00.000</span>
+          </div>
+          <div style="display:flex; justify-content:flex-start; margin-top:12px;">
+            <button class="button soft"><span class="icon-line icon-scan"></span>截取当前帧</button>
+          </div>
+        </section>
+
+        <section class="history-panel">
+          <div class="panel-title">
+            <div>
+              <h2>历史记录</h2>
+              <p>最近处理的截图与字幕</p>
+            </div>
+            <span class="tag">3</span>
+          </div>
+          <div class="history-list">
+            <div class="history-row is-selected">
+              <span class="history-thumb"></span>
+              <span class="history-copy">
+                <strong>share_e32270ea0376d414f9f366a34...</strong>
+                <small>I need blackmail material.</small>
+              </span>
+              <span class="delete-btn">×</span>
+            </div>
+            <div class="history-row">
+              <span class="history-thumb"></span>
+              <span class="history-copy">
+                <strong>frame-20260605071734-acpgja</strong>
+                <small>已识别 · 待翻译</small>
+              </span>
+              <span class="delete-btn">×</span>
+            </div>
+          </div>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="workspace-head">
+          <div class="workspace-title">
+            <h2>截帧预览</h2>
+            <p>调整字幕区域后识别英文字幕，并同步生成中文翻译。</p>
+          </div>
+          <div class="workspace-tools">
+            <span class="segmented">
+              <span class="segment is-active">截图</span>
+              <span class="segment">视频帧</span>
+            </span>
+            <span class="metric-pill">720 × 1280</span>
+            <span class="metric-pill">858 KB</span>
+          </div>
+        </header>
+
+        <section class="workspace-body">
+          <div class="preview-stage">
+            <div class="stage-meta">
+              <span class="tag success">已载入</span>
+              <span class="tag warning">裁剪 55-82%</span>
+            </div>
+            <div class="crop-control">
+              <strong>字幕区域</strong>
+              <span>Top 55% · Bottom 82%</span>
+              <div class="crop-track"></div>
+            </div>
+            <div class="phone-frame">
+              <div class="video-scene">
+                <span class="hair"></span>
+                <span class="face"></span>
+                <span class="glasses"></span>
+                <span class="suit"></span>
+                <span class="subtitle-overlay">
+                  <span class="subtitle-line">I need blackmail material.</span>
+                </span>
+                <span class="video-mark">抖音<br>字幕样例</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="text-grid">
+            <section class="text-panel">
+              <div class="text-panel-head">
+                <h3>英文字幕</h3>
+                <span class="tag success">已识别</span>
+              </div>
+              <div class="editor english">I need blackmail material.</div>
+              <div class="marked-note">候选校对：I need <mark>blackmail</mark> material.</div>
+            </section>
+
+            <section class="text-panel">
+              <div class="text-panel-head">
+                <h3>中文翻译</h3>
+                <span class="tag success">已翻译</span>
+              </div>
+              <div class="editor chinese">我需要能用来勒索的材料。</div>
+              <div class="translation-foot">
+                <span>可继续编辑后保存文本</span>
+                <span>自动换行 · UTF-8</span>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <footer class="workspace-footer">
+          <div class="footer-meta">
+            <span class="tag">当前帧 00:00.000</span>
+            <span class="tag success">目录已授权</span>
+          </div>
+          <div class="footer-actions">
+            <button class="button primary"><span class="icon-line icon-scan"></span>识别字幕</button>
+            <button class="button primary"><span class="icon-line icon-switch"></span>翻译</button>
+            <button class="button ghost">保存文本</button>
+            <button class="button primary">复制图片</button>
+            <button class="button primary"><span class="icon-line icon-download"></span>下载 PNG</button>
+          </div>
+        </footer>
+      </main>
+    </div>
+  </div>
+</body>
+</html>
