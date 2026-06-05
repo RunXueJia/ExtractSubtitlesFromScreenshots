@@ -22,16 +22,13 @@
           :tabindex="canImportImage ? 0 : undefined"
           :aria-label="
             canImportImage
-              ? '点击选择图片，或拖拽、粘贴图片到截帧预览区'
+              ? '拖拽或粘贴图片到截帧预览区，也可以使用选择图片按钮导入'
               : undefined
           "
-          @click="chooseImage"
           @dragenter.prevent="handleFrameDragover"
           @dragover.prevent="handleFrameDragover"
           @dragleave="handleFrameDragleave"
           @drop.prevent="handleFrameDrop"
-          @keydown.enter.prevent="chooseImage"
-          @keydown.space.prevent="chooseImage"
           @paste="handleFramePaste">
           <template v-if="currentFrame?.previewUrl">
             <div ref="previewMediaRef" class="frame-preview-media">
@@ -62,7 +59,14 @@
             <template #description>
               <div class="frame-empty-copy">
                 <strong>暂无截帧</strong>
-                <span>点击选择图片，或拖拽、粘贴图片</span>
+                <span>可拖拽或粘贴图片</span>
+                <el-button
+                  class="frame-import-button"
+                  type="primary"
+                  :disabled="!canImportImage"
+                  @click="chooseImage">
+                  选择图片
+                </el-button>
               </div>
             </template>
           </el-empty>

@@ -404,7 +404,6 @@ input[type="range"] {
 }
 
 .frame-preview--empty {
-  cursor: pointer;
   background: var(--panel-soft);
   transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
 }
@@ -423,7 +422,8 @@ input[type="range"] {
 
 .frame-empty-copy {
   display: grid;
-  gap: 7px;
+  justify-items: center;
+  gap: 10px;
   color: var(--ink);
   text-align: center;
 }
@@ -439,6 +439,10 @@ input[type="range"] {
   font-weight: 900;
   line-height: 1.35;
   text-wrap: pretty;
+}
+
+.frame-import-button {
+  margin-top: 2px;
 }
 
 .frame-preview img {

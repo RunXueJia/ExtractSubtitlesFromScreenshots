@@ -55,13 +55,34 @@ npm -v
 npm install -g pm2
 ```
 
-### 2. 上传后端代码
+### 2. 上传后端代码并关联 Git
 
 将项目代码放到服务器目录，例如：
 
 ```bash
 /extract-subtitles
 ```
+
+推荐直接在服务器用 Git 克隆项目，后续更新可以在该目录执行 `git pull`：
+
+```bash
+git clone <your-git-repository-url> /extract-subtitles
+cd /extract-subtitles
+git remote -v
+git branch --show-current
+```
+
+如果服务器上已经手动上传过 `/extract-subtitles` 目录，也可以在该目录关联远程仓库：
+
+```bash
+cd /extract-subtitles
+git init
+git remote add origin <your-git-repository-url>
+git fetch origin
+git branch --set-upstream-to=origin/main main
+```
+
+如果仓库默认分支不是 `main`，把上面的 `main` 替换为实际分支名，例如 `master`。关联前建议先执行 `git status` 确认目录里没有不需要保留的临时文件。
 
 后续命令都以该目录为例：
 
