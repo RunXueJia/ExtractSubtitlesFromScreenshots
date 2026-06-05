@@ -60,21 +60,29 @@ npm install -g pm2
 将项目代码放到服务器目录，例如：
 
 ```bash
-/opt/extract-subtitles
+/extract-subtitles
 ```
 
 后续命令都以该目录为例：
 
 ```bash
-cd /opt/extract-subtitles
+cd /extract-subtitles
 ```
 
-也可以只上传 `server/` 目录和项目说明文件；前端静态产物会在本地构建后单独上传。
+服务器目录建议保持为：
+
+```text
+/extract-subtitles/
+  server/    后端代码
+  web/       前端本地打包后的静态文件
+```
+
+也可以只上传 `server/` 目录和项目说明文件；`web/` 目录放本地构建后的前端静态产物。
 
 ### 3. 配置后端环境变量
 
 ```bash
-cd /opt/extract-subtitles/server
+cd /extract-subtitles/server
 cp .env.example .env
 vim .env
 ```
@@ -102,7 +110,7 @@ SUBTITLE_REQUEST_TIMEOUT_MS=30000
 ### 4. 启动后端 API
 
 ```bash
-cd /opt/extract-subtitles/server
+cd /extract-subtitles/server
 npm install --omit=dev
 pm2 start src/app.js --name extract-subtitles-api
 pm2 save
@@ -141,13 +149,13 @@ frontend/dist
 在服务器创建静态文件目录：
 
 ```bash
-mkdir -p /opt/extract-subtitles/frontend/dist
+mkdir -p /extract-subtitles/web
 ```
 
 把本地 `frontend/dist/` 目录内的文件上传到服务器：
 
 ```bash
-rsync -av --delete frontend/dist/ user@your-server:/opt/extract-subtitles/frontend/dist/
+rsync -av --delete frontend/dist/ user@your-server:/extract-subtitles/web/
 ```
 
 如果使用 Windows 图形化工具上传，也只需要上传 `frontend/dist` 里的文件，不需要上传 `node_modules`。
@@ -161,7 +169,7 @@ server {
     listen 80;
     server_name your-domain.com;
 
-    root /opt/extract-subtitles/frontend/dist;
+    root /extract-subtitles/web;
     index index.html;
 
     client_max_body_size 10m;
@@ -214,13 +222,13 @@ http://your-domain.com/
 cd frontend
 npm ci
 npm run build
-rsync -av --delete dist/ user@your-server:/opt/extract-subtitles/frontend/dist/
+rsync -av --delete dist/ user@your-server:/extract-subtitles/web/
 ```
 
 如果后端代码也有更新，再到服务器执行：
 
 ```bash
-cd /opt/extract-subtitles
+cd /extract-subtitles
 git pull
 
 cd server
