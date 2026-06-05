@@ -7,7 +7,10 @@
     </PanelTitle>
     <div class="frame-grid">
       <div class="frame-preview">
-        <img v-if="currentFrame?.previewUrl" :src="currentFrame.previewUrl" alt="" />
+        <template v-if="currentFrame?.previewUrl">
+          <img class="frame-preview-bg" :src="currentFrame.previewUrl" alt="" aria-hidden="true" />
+          <img class="frame-preview-image" :src="currentFrame.previewUrl" alt="" />
+        </template>
         <el-empty v-else-if="currentFrame" description="需要重新授权目录" />
         <el-empty v-else description="暂无截帧" />
         <canvas ref="scratchCanvasRef" hidden></canvas>
@@ -46,12 +49,22 @@
     </div>
 
     <div class="action-bar">
-      <el-button :icon="Switch" :loading="translateStatus === '翻译中'" :disabled="!currentFrame || busy" @click="$emit('translate')">
+      <el-button
+        class="action-button action-button--primary"
+        :icon="Switch"
+        :loading="translateStatus === '翻译中'"
+        :disabled="!currentFrame || busy"
+        @click="$emit('translate')"
+      >
         翻译
       </el-button>
       <el-button :icon="DocumentChecked" :disabled="!currentFrame || busy" @click="$emit('save')">保存文本</el-button>
-      <el-button :icon="CopyDocument" :disabled="!currentFrame || busy" @click="$emit('copy')">复制图片</el-button>
-      <el-button :icon="Download" :disabled="!currentFrame || busy" @click="$emit('download')">下载 PNG</el-button>
+      <el-button class="action-button action-button--primary" :icon="CopyDocument" :disabled="!currentFrame || busy" @click="$emit('copy')">
+        复制图片
+      </el-button>
+      <el-button class="action-button action-button--primary" :icon="Download" :disabled="!currentFrame || busy" @click="$emit('download')">
+        下载 PNG
+      </el-button>
     </div>
   </ModulePanel>
 </template>

@@ -1,8 +1,12 @@
 const { getModelConfig } = require('./config');
 const { AppError, normalizeModelErrorMessage } = require('./errors');
+const { EXTRACT_PROMPT, TRANSLATE_PROMPT } = require('./modelPrompts.json');
+function getPromptVersion(promptMap, version, promptName) {
+  const prompt = promptMap?.[version];
+  if (typeof prompt === 'string' && prompt.trim()) return prompt;
 
-const EXTRACT_PROMPT = '提取图片字幕，英文正常书写，中文拼音使用<mark>拼音内容</mark>标签高亮包裹，**只输出最终字幕文本，禁止额外解释、开场白、说明文字、格式注释、多余换行，不能附带任何补充话语，严格只返回处理完的字幕结果**。';
-const TRANSLATE_PROMPT = '将下面的字幕翻译成自然流畅的中文。输入中如果包含<mark>...</mark>标签，只翻译标签外的语义，不要输出HTML标签。只输出中文译文，禁止解释、开场白、说明文字、格式注释和多余换行。';
+  throw new AppError(500, `${promptName} ${version} 未配置。`);
+}
 
 function getHeaders(apiKey) {
   return {
@@ -83,7 +87,7 @@ async function extractSubtitleFromImage(imageDataUrl) {
             },
             {
               type: 'text',
-              text: EXTRACT_PROMPT
+              text: getPromptVersion(EXTRACT_PROMPT, EXTRACT_PROMPT.VERSION, 'EXTRACT_PROMPT')
             }
           ]
         }
@@ -111,7 +115,7 @@ async function translateSubtitleToChinese(text) {
           content: [
             {
               type: 'text',
-              text: `${TRANSLATE_PROMPT}\n\n${text}`
+              text: `${getPromptVersion(TRANSLATE_PROMPT, TRANSLATE_PROMPT.VERSION, 'TRANSLATE_PROMPT')}\n\n${text}`
             }
           ]
         }
