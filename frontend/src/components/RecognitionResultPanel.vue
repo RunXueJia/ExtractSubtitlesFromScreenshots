@@ -1,8 +1,24 @@
 <template>
   <ModulePanel class="result-panel">
     <PanelTitle title="截帧预览">
+      <template #title-extra>
+        <span v-if="!showImageActions" class="frame-action-tip">
+          图片区域右击复制或保存图片
+        </span>
+      </template>
       <template #meta>
-        <el-tag type="info">{{ frameMeta }}</el-tag>
+        <div class="frame-title-actions">
+          <el-button
+            v-if="currentFrame"
+            class="clear-frame-button"
+            size="small"
+            plain
+            :disabled="busy"
+            @click="$emit('clear')">
+            清除图片
+          </el-button>
+          <el-tag type="info">{{ frameMeta }}</el-tag>
+        </div>
       </template>
     </PanelTitle>
     <div class="frame-grid">
@@ -242,6 +258,7 @@ const emit = defineEmits([
   "translate",
   "save",
   "copy",
+  "clear",
   "select-image",
   "reject-image",
 ]);

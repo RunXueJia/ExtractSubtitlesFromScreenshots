@@ -1,6 +1,9 @@
 <template>
   <div class="panel-title" :class="{ compact }">
-    <h2>{{ title }}</h2>
+    <div class="panel-title-main">
+      <h2>{{ title }}</h2>
+      <slot name="title-extra" />
+    </div>
     <slot name="meta" />
   </div>
 </template>

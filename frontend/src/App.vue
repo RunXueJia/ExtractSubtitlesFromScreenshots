@@ -42,6 +42,7 @@
         @reject-image="showUnsupportedSource"
         @save="saveCurrentText"
         @copy="copyCurrentFrame"
+        @clear="clearCurrentFrame"
       />
     </main>
   </div>
@@ -83,8 +84,8 @@ const currentFrame = ref(null);
 const selectedId = ref('');
 const history = ref([]);
 const busy = ref(false);
-const cropTop = ref(55);
-const cropBottom = ref(82);
+const cropTop = ref(80);
+const cropBottom = ref(100);
 const subtitleText = ref('');
 const translationText = ref('');
 const ocrStatus = ref('未识别');
@@ -620,6 +621,12 @@ function handleFramePreviewImage(file) {
   setSource(file, 'image');
 }
 
+function clearCurrentFrame() {
+  currentFrame.value = null;
+  selectedId.value = '';
+  clearFrameText();
+}
+
 async function setSource(file, type) {
   if (!file) return;
   revokeSourceUrl();
@@ -842,6 +849,7 @@ async function deleteHistory(id) {
 async function recognizeCurrentFrame() {
   if (!currentFrame.value) return;
   const frameId = currentFrame.value.id;
+  let shouldAutoTranslate = false;
 
   try {
     busy.value = true;
@@ -855,11 +863,16 @@ async function recognizeCurrentFrame() {
     ocrStatus.value = text ? '已识别' : '空结果';
     await updateSelectedFrame({ text, translation: '' });
     ElMessage.success('字幕识别完成');
+    shouldAutoTranslate = Boolean(text);
   } catch (error) {
     ocrStatus.value = '识别失败';
     ElMessage.error(error.message || '字幕识别失败');
   } finally {
     busy.value = false;
+  }
+
+  if (shouldAutoTranslate && currentFrame.value?.id === frameId) {
+    await translateCurrentText();
   }
 }
 
