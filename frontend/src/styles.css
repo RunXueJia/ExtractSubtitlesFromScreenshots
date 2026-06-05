@@ -110,6 +110,7 @@ textarea,
 }
 
 .upload-zone,
+.storage-panel,
 .viewer-panel,
 .region-panel,
 .result-panel,
@@ -125,12 +126,31 @@ textarea,
   padding: 16px;
 }
 
+.storage-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.storage-panel > div {
+  min-width: 0;
+}
+
+.storage-panel.attention {
+  border-color: var(--accent);
+  background: #f3fbfa;
+}
+
 .upload-zone strong,
+.storage-panel strong,
 .upload-zone span {
   display: block;
 }
 
-.upload-zone span {
+.upload-zone span,
+.storage-panel span {
   overflow: hidden;
   margin-top: 4px;
   color: var(--muted);
@@ -396,6 +416,18 @@ input[type="range"] {
   object-fit: contain;
 }
 
+.history-thumb {
+  display: grid;
+  width: 74px;
+  height: 74px;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .history-item strong,
 .history-item small {
   display: block;
@@ -440,7 +472,12 @@ input[type="range"] {
     flex-direction: column;
   }
 
+  .storage-panel {
+    grid-template-columns: 1fr;
+  }
+
   .upload-actions button,
+  .storage-panel button,
   .timeline-row button,
   .action-bar button {
     width: 100%;

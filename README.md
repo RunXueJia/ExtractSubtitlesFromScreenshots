@@ -6,7 +6,7 @@
 
 - 前端：Vue 3、Element Plus、Vite。
 - 后端：Node.js 原生 HTTP API。
-- 存储：不使用数据库；历史记录保存在浏览器 `localStorage`。
+- 存储：不使用数据库；截图 PNG 和文本 JSON 保存到用户选择的本地目录，目录授权和截图索引保存在浏览器 IndexedDB。
 - 视频截帧：不使用 FFmpeg，全部在前端 canvas 完成。
 
 ## 本地运行
@@ -29,6 +29,12 @@ npm run dev
 ```
 
 默认前端端口是 `5180`，后端端口是 `3001`，Vite 会把 `/api` 代理到后端。
+
+## 本地文件保存
+
+首次使用截图或截帧前，需要在页面中点击“选择目录”授权浏览器写入本地目录。应用会按素材文件名创建子目录，例如 `movie.mp4` 对应 `movie/`，每一帧保存为 `frame-*.png`，对应字幕文本保存为同名 `frame-*.json`。
+
+目录句柄和历史索引都保存在浏览器 IndexedDB，不保存截图 base64。该能力依赖 Chromium 系浏览器的 File System Access API。
 
 ## 接口
 

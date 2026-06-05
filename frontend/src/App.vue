@@ -28,6 +28,14 @@
         </div>
       </section>
 
+      <section class="storage-panel" :class="{ attention: storageNeedsSetup }">
+        <div>
+          <strong>保存目录</strong>
+          <span>{{ storageLabel }}</span>
+        </div>
+        <el-button :icon="Download" :disabled="busy" @click="chooseOutputDirectory">选择目录</el-button>
+      </section>
+
       <section class="viewer-panel">
         <div class="media-wrap">
           <video
@@ -80,7 +88,8 @@
         </div>
         <div class="frame-grid">
           <div class="frame-preview">
-            <img v-if="currentFrame" :src="currentFrame.imageDataUrl" alt="" />
+            <img v-if="currentFrame?.previewUrl" :src="currentFrame.previewUrl" alt="" />
+            <el-empty v-else-if="currentFrame" description="需要重新授权目录" />
             <el-empty v-else description="暂无截帧" />
             <canvas ref="scratchCanvasRef" hidden></canvas>
           </div>
@@ -134,10 +143,11 @@
         <div v-else class="history-list">
           <div v-for="item in history" :key="item.id" class="history-row">
             <button class="history-item" :class="{ active: selectedId === item.id }" type="button" @click="selectFrame(item)">
-              <img :src="item.imageDataUrl" alt="" />
+              <img v-if="item.previewUrl" :src="item.previewUrl" alt="" />
+              <span v-else class="history-thumb">PNG</span>
               <span>
                 <strong>{{ item.sourceName }}</strong>
-                <small>{{ item.text || item.translation || formatTime(item.seconds) }}</small>
+                <small>{{ item.text || item.translation || item.textPreview || item.translationPreview || formatTime(item.seconds) }}</small>
               </span>
             </button>
             <el-button type="danger" plain @click="deleteHistory(item.id)">删除</el-button>
@@ -149,7 +159,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import { ElMessage } from 'element-plus';
 import {
   Camera,
@@ -164,8 +174,15 @@ import {
 
 import { extractSubtitle, translateSubtitle } from './api/client.js';
 
-const HISTORY_KEY = 'extract-subtitles.history.v1';
+const LEGACY_HISTORY_KEYS = ['extract-subtitles.history.v2', 'extract-subtitles.history.v1'];
 const MAX_HISTORY = 20;
+const HISTORY_PREVIEW_LENGTH = 80;
+const STORAGE_DB_NAME = 'extract-subtitles-storage';
+const STORAGE_DB_VERSION = 2;
+const STORAGE_HANDLE_STORE_NAME = 'handles';
+const STORAGE_HISTORY_STORE_NAME = 'history';
+const OUTPUT_DIRECTORY_KEY = 'outputDirectory';
+const HISTORY_INDEX_KEY = 'items';
 
 const videoInputRef = ref(null);
 const imageInputRef = ref(null);
@@ -173,12 +190,16 @@ const videoRef = ref(null);
 const imageRef = ref(null);
 const scratchCanvasRef = ref(null);
 
+const outputDirectoryHandle = shallowRef(null);
+const outputDirectoryName = ref('');
+const storageStatus = ref('checking');
+const storageError = ref('');
 const sourceType = ref('');
 const sourceName = ref('');
 const sourceUrl = ref('');
 const currentFrame = ref(null);
 const selectedId = ref('');
-const history = ref(loadHistory());
+const history = ref([]);
 const busy = ref(false);
 const isDragging = ref(false);
 const cropTop = ref(55);
@@ -189,6 +210,15 @@ const translationText = ref('');
 const ocrStatus = ref('未识别');
 const translateStatus = ref('待翻译');
 
+const storageNeedsSetup = computed(() => storageStatus.value !== 'ready');
+const storageLabel = computed(() => {
+  if (storageStatus.value === 'checking') return '正在检查目录授权';
+  if (storageStatus.value === 'ready') return outputDirectoryName.value ? `已连接 ${outputDirectoryName.value}` : '已连接';
+  if (storageStatus.value === 'unsupported') return '当前浏览器不支持目录保存';
+  if (storageStatus.value === 'needs-permission') return '需要重新授权保存目录';
+  if (storageStatus.value === 'error') return storageError.value || '目录不可用';
+  return '首次使用请选择保存目录';
+});
 const regionLabel = computed(() => `${cropTop.value}% - ${cropBottom.value}%`);
 const frameMeta = computed(() => {
   const frame = currentFrame.value;
@@ -202,22 +232,98 @@ const translateTagType = computed(() =>
   translateStatus.value.includes('失败') ? 'danger' : translateStatus.value.includes('已') ? 'success' : 'info'
 );
 
-function loadHistory() {
+function readLegacyHistory() {
+  for (const key of LEGACY_HISTORY_KEYS) {
+    const raw = localStorage.getItem(key);
+    if (!raw) continue;
+
+    try {
+      const items = JSON.parse(raw);
+      if (!Array.isArray(items)) continue;
+      return items.map(normalizeHistoryIndex).filter(Boolean).slice(0, MAX_HISTORY);
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function clearLegacyHistory() {
   try {
-    return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+    LEGACY_HISTORY_KEYS.forEach(key => localStorage.removeItem(key));
   } catch {
-    return [];
+    // Old localStorage indexes are best-effort migration only.
   }
 }
 
-function persistHistory() {
-  try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(history.value.slice(0, MAX_HISTORY)));
-  } catch {
-    history.value = history.value.slice(0, 1);
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(history.value));
-    ElMessage.warning('浏览器本地历史空间不足，已仅保留最新记录。');
+async function loadHistoryIndex() {
+  const stored = await readHistoryIndex();
+  if (stored.length) {
+    clearLegacyHistory();
+    return stored;
   }
+
+  const migrated = readLegacyHistory();
+  if (migrated.length) await writeHistoryIndex(migrated);
+  clearLegacyHistory();
+  return migrated;
+}
+
+async function persistHistory() {
+  try {
+    await writeHistoryIndex(history.value.slice(0, MAX_HISTORY));
+  } catch {
+    ElMessage.warning('浏览器本地索引保存失败。');
+  }
+}
+
+function normalizeHistoryIndex(item) {
+  if (!item || typeof item !== 'object' || !item.id || !item.sourceDirName || !item.imageFileName) return null;
+
+  return {
+    id: String(item.id),
+    sourceType: item.sourceType === 'video' ? 'video' : 'image',
+    sourceName: String(item.sourceName || '未命名素材'),
+    sourceDirName: String(item.sourceDirName),
+    imageFileName: String(item.imageFileName),
+    textFileName: String(item.textFileName || `${item.id}.json`),
+    seconds: Number.isFinite(item.seconds) ? item.seconds : 0,
+    width: Number.isFinite(item.width) ? item.width : 0,
+    height: Number.isFinite(item.height) ? item.height : 0,
+    bytes: String(item.bytes || ''),
+    textPreview: previewText(item.textPreview || item.text),
+    translationPreview: previewText(item.translationPreview || item.translation),
+    hasText: Boolean(item.hasText || item.textPreview || item.text),
+    hasTranslation: Boolean(item.hasTranslation || item.translationPreview || item.translation),
+    createdAt: String(item.createdAt || new Date().toISOString()),
+    updatedAt: String(item.updatedAt || item.createdAt || new Date().toISOString())
+  };
+}
+
+function toHistoryIndex(item) {
+  return {
+    id: item.id,
+    sourceType: item.sourceType,
+    sourceName: item.sourceName,
+    sourceDirName: item.sourceDirName,
+    imageFileName: item.imageFileName,
+    textFileName: item.textFileName,
+    seconds: item.seconds,
+    width: item.width,
+    height: item.height,
+    bytes: item.bytes,
+    textPreview: previewText(item.text || item.textPreview),
+    translationPreview: previewText(item.translation || item.translationPreview),
+    hasText: Boolean(String(item.text || item.textPreview || '').trim()),
+    hasTranslation: Boolean(String(item.translation || item.translationPreview || '').trim()),
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt
+  };
+}
+
+function previewText(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').slice(0, HISTORY_PREVIEW_LENGTH);
 }
 
 function formatTime(seconds) {
@@ -228,12 +334,306 @@ function formatTime(seconds) {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
 }
 
-function formatBytesFromDataUrl(dataUrl) {
-  if (!dataUrl) return '';
-  const base64 = dataUrl.split(',')[1] || '';
-  const bytes = Math.round(base64.length * 0.75);
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '';
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function supportsFileSystemAccess() {
+  return Boolean(window.isSecureContext && window.indexedDB && window.showDirectoryPicker);
+}
+
+function openStorageDb() {
+  return new Promise((resolve, reject) => {
+    const request = window.indexedDB.open(STORAGE_DB_NAME, STORAGE_DB_VERSION);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORAGE_HANDLE_STORE_NAME)) db.createObjectStore(STORAGE_HANDLE_STORE_NAME);
+      if (!db.objectStoreNames.contains(STORAGE_HISTORY_STORE_NAME)) db.createObjectStore(STORAGE_HISTORY_STORE_NAME);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('目录索引库打开失败。'));
+  });
+}
+
+function runStorageTransaction(storeName, mode, run) {
+  return openStorageDb().then(
+    db =>
+      new Promise((resolve, reject) => {
+        const transaction = db.transaction(storeName, mode);
+        const store = transaction.objectStore(storeName);
+        const request = run(store);
+
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error || new Error('本地索引库操作失败。'));
+        transaction.oncomplete = () => db.close();
+        transaction.onerror = () => {
+          db.close();
+          reject(transaction.error || new Error('本地索引库操作失败。'));
+        };
+      })
+  );
+}
+
+async function readHistoryIndex() {
+  const items = await runStorageTransaction(STORAGE_HISTORY_STORE_NAME, 'readonly', store => store.get(HISTORY_INDEX_KEY));
+  if (!Array.isArray(items)) return [];
+  return items.map(normalizeHistoryIndex).filter(Boolean).slice(0, MAX_HISTORY);
+}
+
+function writeHistoryIndex(items) {
+  return runStorageTransaction(STORAGE_HISTORY_STORE_NAME, 'readwrite', store =>
+    store.put(items.slice(0, MAX_HISTORY).map(toHistoryIndex), HISTORY_INDEX_KEY)
+  );
+}
+
+async function readStoredDirectoryHandle() {
+  return (await runStorageTransaction(STORAGE_HANDLE_STORE_NAME, 'readonly', store => store.get(OUTPUT_DIRECTORY_KEY))) || null;
+}
+
+async function storeDirectoryHandle(handle) {
+  await runStorageTransaction(STORAGE_HANDLE_STORE_NAME, 'readwrite', store => store.put(handle, OUTPUT_DIRECTORY_KEY));
+}
+
+async function queryDirectoryPermission(handle) {
+  if (!handle?.queryPermission) return 'granted';
+
+  try {
+    return await handle.queryPermission({ mode: 'readwrite' });
+  } catch {
+    return 'denied';
+  }
+}
+
+async function requestDirectoryPermission(handle) {
+  if (!handle?.requestPermission) return 'granted';
+
+  try {
+    return await handle.requestPermission({ mode: 'readwrite' });
+  } catch {
+    return 'denied';
+  }
+}
+
+async function pickOutputDirectory() {
+  const handle = await window.showDirectoryPicker({
+    id: 'extract-subtitles-output',
+    mode: 'readwrite'
+  });
+
+  await storeDirectoryHandle(handle);
+  outputDirectoryHandle.value = handle;
+  outputDirectoryName.value = handle.name || '';
+  storageStatus.value = 'ready';
+  storageError.value = '';
+  return handle;
+}
+
+async function chooseOutputDirectory() {
+  if (!supportsFileSystemAccess()) {
+    storageStatus.value = 'unsupported';
+    ElMessage.error('当前浏览器不支持选择本地目录，请使用 Chromium 系浏览器。');
+    return;
+  }
+
+  try {
+    const storedHandle = outputDirectoryHandle.value || (await readStoredDirectoryHandle());
+    if (storedHandle) {
+      outputDirectoryHandle.value = storedHandle;
+      outputDirectoryName.value = storedHandle.name || '';
+      const permission = await requestDirectoryPermission(storedHandle);
+      if (permission === 'granted') {
+        storageStatus.value = 'ready';
+        storageError.value = '';
+      } else {
+        await pickOutputDirectory();
+      }
+    } else {
+      await pickOutputDirectory();
+    }
+
+    await hydrateHistoryFromStorage();
+    if (sourceType.value === 'image' && !currentFrame.value) await captureImagePreview();
+    ElMessage.success('保存目录已设置');
+  } catch (error) {
+    if (error?.name === 'AbortError') return;
+    storageStatus.value = 'error';
+    storageError.value = error?.message || '保存目录设置失败。';
+    ElMessage.error(storageError.value);
+  }
+}
+
+async function ensureOutputDirectory({ allowPicker = false } = {}) {
+  if (!supportsFileSystemAccess()) {
+    storageStatus.value = 'unsupported';
+    throw new Error('当前浏览器不支持选择本地目录，请使用 Chromium 系浏览器。');
+  }
+
+  let handle = outputDirectoryHandle.value;
+  if (!handle) {
+    handle = await readStoredDirectoryHandle();
+    if (handle) {
+      outputDirectoryHandle.value = handle;
+      outputDirectoryName.value = handle.name || '';
+    }
+  }
+
+  if (!handle && allowPicker) handle = await pickOutputDirectory();
+  if (!handle) {
+    storageStatus.value = 'needs-setup';
+    throw new Error('请先选择保存目录。');
+  }
+
+  let permission = await queryDirectoryPermission(handle);
+  if (permission !== 'granted' && allowPicker) permission = await requestDirectoryPermission(handle);
+
+  if (permission !== 'granted') {
+    storageStatus.value = 'needs-permission';
+    throw new Error('需要重新授权保存目录。');
+  }
+
+  storageStatus.value = 'ready';
+  storageError.value = '';
+  return handle;
+}
+
+function hasOutputDirectoryPermission() {
+  return storageStatus.value === 'ready' && Boolean(outputDirectoryHandle.value);
+}
+
+function stripExtension(name) {
+  const value = String(name || '').trim();
+  const dotIndex = value.lastIndexOf('.');
+  return dotIndex > 0 ? value.slice(0, dotIndex) : value;
+}
+
+function sanitizePathSegment(value, fallback) {
+  let next = String(value || '')
+    .trim()
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+    .replace(/\s+/g, ' ')
+    .replace(/[. ]+$/g, '')
+    .slice(0, 80)
+    .trim();
+
+  if (!next) next = fallback;
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(next)) next = `${next}_file`;
+  return next;
+}
+
+function getSourceDirectoryName(name) {
+  return sanitizePathSegment(stripExtension(name), 'untitled-source');
+}
+
+function createFrameId() {
+  const timestamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+  return `frame-${timestamp}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function canvasToBlob(canvas, type = 'image/png', quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => {
+      if (blob) resolve(blob);
+      else reject(new Error('无法生成截图文件。'));
+    }, type, quality);
+  });
+}
+
+async function writeFile(directoryHandle, fileName, content) {
+  const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
+  const writable = await fileHandle.createWritable();
+
+  try {
+    await writable.write(content);
+    await writable.close();
+  } catch (error) {
+    try {
+      await writable.abort?.();
+    } catch {
+      // Ignore abort failures; the original write error is more useful.
+    }
+    throw error;
+  }
+}
+
+async function getSourceDirectoryHandle(item, options = {}) {
+  const rootHandle = await ensureOutputDirectory();
+  return rootHandle.getDirectoryHandle(item.sourceDirName, options);
+}
+
+async function writeFrameSidecar(item) {
+  const directoryHandle = await getSourceDirectoryHandle(item, { create: true });
+  const payload = {
+    id: item.id,
+    sourceType: item.sourceType,
+    sourceName: item.sourceName,
+    seconds: item.seconds,
+    width: item.width,
+    height: item.height,
+    bytes: item.bytes,
+    imageFileName: item.imageFileName,
+    text: item.text || '',
+    translation: item.translation || '',
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt
+  };
+
+  await writeFile(
+    directoryHandle,
+    item.textFileName,
+    new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+  );
+}
+
+async function loadFrameBlob(item) {
+  const directoryHandle = await getSourceDirectoryHandle(item);
+  const fileHandle = await directoryHandle.getFileHandle(item.imageFileName);
+  return fileHandle.getFile();
+}
+
+async function loadFrameSidecar(item) {
+  const directoryHandle = await getSourceDirectoryHandle(item);
+  const fileHandle = await directoryHandle.getFileHandle(item.textFileName);
+  const file = await fileHandle.getFile();
+  return JSON.parse(await file.text());
+}
+
+function revokePreviewUrl(item) {
+  if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
+}
+
+async function hydrateFrameItem(item) {
+  const next = { ...item };
+
+  if (!next.previewUrl) {
+    const blob = await loadFrameBlob(next);
+    next.previewUrl = URL.createObjectURL(blob);
+    if (!next.bytes) next.bytes = formatBytes(blob.size);
+  }
+
+  if ((next.hasText || next.hasTranslation) && (typeof next.text !== 'string' || typeof next.translation !== 'string')) {
+    const sidecar = await loadFrameSidecar(next);
+    next.text = sidecar.text || '';
+    next.translation = sidecar.translation || '';
+  }
+
+  return next;
+}
+
+async function hydrateHistoryFromStorage() {
+  const nextHistory = [];
+
+  for (const item of history.value) {
+    try {
+      nextHistory.push(await hydrateFrameItem(item));
+    } catch {
+      nextHistory.push(item);
+    }
+  }
+
+  history.value = nextHistory;
 }
 
 function escapeHtml(value) {
@@ -299,9 +699,16 @@ async function setSource(file, type) {
   }
 
   imageRef.value.src = sourceUrl.value;
-  imageRef.value.onload = () => {
-    captureImagePreview();
-    ElMessage.success('截图已载入');
+  imageRef.value.onload = async () => {
+    if (!hasOutputDirectoryPermission()) {
+      ElMessage.warning('截图已载入，请先选择保存目录。');
+      return;
+    }
+
+    await captureImagePreview();
+  };
+  imageRef.value.onerror = () => {
+    ElMessage.error('截图载入失败。');
   };
 }
 
@@ -332,68 +739,120 @@ function syncTimeline() {
   timeLabel.value = `${formatTime(current)} / ${formatTime(duration)}`;
 }
 
-function createFrameItem(dataUrl, meta = {}) {
+async function createFrameItem(blob, meta = {}) {
+  const rootHandle = await ensureOutputDirectory();
+  const sourceDirName = getSourceDirectoryName(sourceName.value);
+  const directoryHandle = await rootHandle.getDirectoryHandle(sourceDirName, { create: true });
+  const id = createFrameId();
+  const imageFileName = `${id}.png`;
+  const textFileName = `${id}.json`;
+
+  await writeFile(directoryHandle, imageFileName, blob);
+
   const item = {
-    id: `frame-${Date.now()}`,
+    id,
     sourceType: sourceType.value,
     sourceName: sourceName.value || '未命名素材',
-    imageDataUrl: dataUrl,
+    sourceDirName,
+    imageFileName,
+    textFileName,
+    previewUrl: URL.createObjectURL(blob),
     seconds: meta.seconds || 0,
     width: meta.width || 0,
     height: meta.height || 0,
-    bytes: formatBytesFromDataUrl(dataUrl),
+    bytes: formatBytes(blob.size),
     text: '',
     translation: '',
     createdAt: new Date().toISOString()
   };
 
+  item.updatedAt = item.createdAt;
+  await writeFrameSidecar(item);
+
   currentFrame.value = item;
   selectedId.value = item.id;
-  history.value = [item, ...history.value.filter(entry => entry.id !== item.id)].slice(0, MAX_HISTORY);
-  persistHistory();
+  const nextHistory = [item, ...history.value.filter(entry => entry.id !== item.id)];
+  nextHistory.slice(MAX_HISTORY).forEach(revokePreviewUrl);
+  history.value = nextHistory.slice(0, MAX_HISTORY);
+  await persistHistory();
   clearFrameText();
   return item;
 }
 
-function captureVideoFrame() {
+async function captureVideoFrame() {
   const video = videoRef.value;
   if (!video?.videoWidth || !video?.videoHeight) {
     ElMessage.warning('视频尚未准备好。');
     return;
   }
 
-  const canvas = scratchCanvasRef.value;
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-  createFrameItem(canvas.toDataURL('image/png'), {
-    seconds: video.currentTime || 0,
-    width: canvas.width,
-    height: canvas.height
-  });
-  ElMessage.success('已截取当前帧');
+  if (!hasOutputDirectoryPermission()) {
+    ElMessage.warning('请先选择保存目录。');
+    return;
+  }
+
+  try {
+    busy.value = true;
+    const canvas = scratchCanvasRef.value;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await canvasToBlob(canvas, 'image/png');
+    await createFrameItem(blob, {
+      seconds: video.currentTime || 0,
+      width: canvas.width,
+      height: canvas.height
+    });
+    ElMessage.success('已截取当前帧');
+  } catch (error) {
+    ElMessage.error(error.message || '截取当前帧失败');
+  } finally {
+    busy.value = false;
+  }
 }
 
-function captureImagePreview() {
+async function captureImagePreview() {
   const image = imageRef.value;
   if (!image?.naturalWidth || !image?.naturalHeight) return;
 
-  const canvas = scratchCanvasRef.value;
-  canvas.width = image.naturalWidth;
-  canvas.height = image.naturalHeight;
-  canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
-  createFrameItem(canvas.toDataURL('image/png'), {
-    width: canvas.width,
-    height: canvas.height
-  });
+  if (!hasOutputDirectoryPermission()) {
+    ElMessage.warning('请先选择保存目录。');
+    return;
+  }
+
+  try {
+    busy.value = true;
+    const canvas = scratchCanvasRef.value;
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+    const blob = await canvasToBlob(canvas, 'image/png');
+    await createFrameItem(blob, {
+      width: canvas.width,
+      height: canvas.height
+    });
+    ElMessage.success('截图已保存');
+  } catch (error) {
+    ElMessage.error(error.message || '截图保存失败');
+  } finally {
+    busy.value = false;
+  }
 }
 
 async function prepareSubtitleImage(frame) {
   const image = new Image();
-  image.src = frame.imageDataUrl;
+  const blob = await loadFrameBlob(frame);
+  const objectUrl = URL.createObjectURL(blob);
+  image.src = objectUrl;
   await new Promise((resolve, reject) => {
-    image.onload = resolve;
-    image.onerror = reject;
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve();
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('截图文件读取失败。'));
+    };
   });
 
   normalizeRegion();
@@ -412,47 +871,66 @@ async function prepareSubtitleImage(frame) {
   return canvas.toDataURL('image/jpeg', 0.92);
 }
 
-function updateSelectedFrame(patch) {
+async function updateSelectedFrame(patch) {
   if (!currentFrame.value) return;
-  const next = { ...currentFrame.value, ...patch };
+  const next = { ...currentFrame.value, ...patch, updatedAt: new Date().toISOString() };
+  await writeFrameSidecar(next);
   currentFrame.value = next;
   history.value = history.value.map(item => (item.id === next.id ? next : item));
-  persistHistory();
+  await persistHistory();
 }
 
-function selectFrame(item) {
-  currentFrame.value = item;
-  selectedId.value = item.id;
-  subtitleText.value = item.text || '';
-  translationText.value = item.translation || '';
-  ocrStatus.value = item.text ? '已保存' : '未识别';
-  translateStatus.value = item.translation ? '已翻译' : '待翻译';
+async function selectFrame(item) {
+  try {
+    const hydrated = await hydrateFrameItem(item);
+    currentFrame.value = hydrated;
+    selectedId.value = hydrated.id;
+    history.value = history.value.map(entry => (entry.id === hydrated.id ? hydrated : entry));
+    subtitleText.value = hydrated.text || '';
+    translationText.value = hydrated.translation || '';
+    ocrStatus.value = hydrated.text ? '已保存' : '未识别';
+    translateStatus.value = hydrated.translation ? '已翻译' : '待翻译';
+  } catch (error) {
+    currentFrame.value = item;
+    selectedId.value = item.id;
+    subtitleText.value = item.textPreview || '';
+    translationText.value = item.translationPreview || '';
+    ocrStatus.value = item.hasText ? '已保存' : '未识别';
+    translateStatus.value = item.hasTranslation ? '已翻译' : '待翻译';
+    ElMessage.warning(error.message || '历史截图读取失败，请重新授权目录。');
+  }
 }
 
-function deleteHistory(id) {
+async function deleteHistory(id) {
+  const deleted = history.value.find(item => item.id === id);
   history.value = history.value.filter(item => item.id !== id);
+  revokePreviewUrl(deleted);
   if (selectedId.value === id) {
     currentFrame.value = history.value[0] || null;
-    if (currentFrame.value) selectFrame(currentFrame.value);
+    if (currentFrame.value) await selectFrame(currentFrame.value);
     else {
       selectedId.value = '';
       clearFrameText();
     }
   }
-  persistHistory();
+  await persistHistory();
 }
 
 async function recognizeCurrentFrame() {
   if (!currentFrame.value) return;
+  const frameId = currentFrame.value.id;
 
   try {
     busy.value = true;
     ocrStatus.value = '识别中';
+    translationText.value = '';
+    translateStatus.value = '待翻译';
     const imageDataUrl = await prepareSubtitleImage(currentFrame.value);
     const text = (await extractSubtitle(imageDataUrl)).trim();
+    if (currentFrame.value?.id !== frameId) return;
     subtitleText.value = text;
     ocrStatus.value = text ? '已识别' : '空结果';
-    updateSelectedFrame({ text });
+    await updateSelectedFrame({ text, translation: '' });
     ElMessage.success('字幕识别完成');
   } catch (error) {
     ocrStatus.value = '识别失败';
@@ -475,7 +953,7 @@ async function translateCurrentText() {
     const translation = (await translateSubtitle(text)).trim();
     translationText.value = translation;
     translateStatus.value = translation ? '已翻译' : '空结果';
-    updateSelectedFrame({ text, translation });
+    await updateSelectedFrame({ text, translation });
     ElMessage.success('翻译已生成');
   } catch (error) {
     translateStatus.value = '翻译失败';
@@ -485,21 +963,24 @@ async function translateCurrentText() {
   }
 }
 
-function saveCurrentText() {
+async function saveCurrentText() {
   if (!currentFrame.value) return;
-  updateSelectedFrame({
-    text: subtitleText.value.trim(),
-    translation: translationText.value.trim()
-  });
-  ElMessage.success('文本已保存');
+  try {
+    await updateSelectedFrame({
+      text: subtitleText.value.trim(),
+      translation: translationText.value.trim()
+    });
+    ElMessage.success('文本已保存');
+  } catch (error) {
+    ElMessage.error(error.message || '文本保存失败');
+  }
 }
 
 async function copyCurrentFrame() {
   if (!currentFrame.value) return;
 
   try {
-    const response = await fetch(currentFrame.value.imageDataUrl);
-    const blob = await response.blob();
+    const blob = await loadFrameBlob(currentFrame.value);
     if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
       throw new Error('当前浏览器不支持直接复制图片，请使用下载。');
     }
@@ -514,15 +995,51 @@ async function copyCurrentFrame() {
   }
 }
 
-function downloadCurrentFrame() {
+async function downloadCurrentFrame() {
   if (!currentFrame.value) return;
-  const link = document.createElement('a');
-  link.href = currentFrame.value.imageDataUrl;
-  link.download = `${currentFrame.value.id}.png`;
-  link.click();
+  try {
+    const blob = await loadFrameBlob(currentFrame.value);
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = currentFrame.value.imageFileName || `${currentFrame.value.id}.png`;
+    link.click();
+    URL.revokeObjectURL(objectUrl);
+  } catch (error) {
+    ElMessage.error(error.message || '下载失败');
+  }
 }
 
-onMounted(() => {
-  if (history.value[0]) selectFrame(history.value[0]);
+onMounted(async () => {
+  if (!supportsFileSystemAccess()) {
+    storageStatus.value = 'unsupported';
+    return;
+  }
+
+  try {
+    history.value = await loadHistoryIndex();
+    const handle = await readStoredDirectoryHandle();
+    if (!handle) {
+      storageStatus.value = 'needs-setup';
+      return;
+    }
+
+    outputDirectoryHandle.value = handle;
+    outputDirectoryName.value = handle.name || '';
+    const permission = await queryDirectoryPermission(handle);
+    storageStatus.value = permission === 'granted' ? 'ready' : 'needs-permission';
+    if (permission === 'granted') {
+      await hydrateHistoryFromStorage();
+      if (history.value[0]) await selectFrame(history.value[0]);
+    }
+  } catch (error) {
+    storageStatus.value = 'error';
+    storageError.value = error?.message || '保存目录读取失败。';
+  }
+});
+
+onBeforeUnmount(() => {
+  revokeSourceUrl();
+  history.value.forEach(revokePreviewUrl);
 });
 </script>
