@@ -34,12 +34,41 @@ npm run dev
 
 ## 部署到服务器
 
-以下步骤按常见 Linux 服务器 + Nginx + PM2 部署方式整理。前端在本地打包后上传到服务器，服务器只运行后端 API 和 Nginx；生产环境建议让后端只监听本机 `127.0.0.1:3001`，公网只暴露 Nginx 的 `80/443`。
+以下步骤按常见 Linux 服务器 + Git + Nginx + PM2 部署方式整理。推荐流程是：本地构建前端，把构建产物放到项目根目录 `web/` 并提交到 Git；服务器只通过 `git pull` 更新代码和静态文件。
 
-### 1. 准备运行环境
+`frontend/dist` 是本地临时构建目录，不提交到 Git；`web/` 是生产环境静态文件目录，需要提交到 Git。生产环境建议让后端只监听本机 `127.0.0.1:3001`，公网只暴露 Nginx 的 `80/443`。
+
+### 1. 本地构建前端并提交静态文件
+
+在本地开发机器执行：
+
+```powershell
+cd frontend
+npm ci
+npm run build
+
+cd ..
+Remove-Item -Recurse -Force web -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path web | Out-Null
+Copy-Item -Recurse frontend\dist\* web\
+
+git status
+git add <changed-files> web
+git commit -m "build frontend"
+git push
+```
+
+说明：
+
+- `frontend/dist/` 只是本地构建缓存，不提交。
+- `web/` 是服务器 Nginx 直接读取的静态目录，必须提交。
+- 前端代码使用相对路径 `/api` 调后端，所以生产环境需要由 Nginx 把 `/api` 转发到 `127.0.0.1:3001`。
+
+### 2. 准备服务器运行环境
 
 服务器需要安装：
 
+- Git
 - Node.js `>=18.17`
 - npm
 - Nginx
@@ -50,20 +79,15 @@ npm run dev
 示例：
 
 ```bash
+git --version
 node -v
 npm -v
 npm install -g pm2
 ```
 
-### 2. 上传后端代码并关联 Git
+### 3. 拉取项目代码并关联 Git
 
-将项目代码放到服务器目录，例如：
-
-```bash
-/extract-subtitles
-```
-
-推荐直接在服务器用 Git 克隆项目，后续更新可以在该目录执行 `git pull`：
+首次部署推荐直接在服务器克隆仓库：
 
 ```bash
 git clone <your-git-repository-url> /extract-subtitles
@@ -72,35 +96,36 @@ git remote -v
 git branch --show-current
 ```
 
-如果服务器上已经手动上传过 `/extract-subtitles` 目录，也可以在该目录关联远程仓库：
+如果服务器上已经有手动上传过的 `/extract-subtitles` 目录，建议先备份旧目录再重新克隆：
+
+```bash
+mv /extract-subtitles /extract-subtitles.bak-$(date +%Y%m%d%H%M%S)
+git clone <your-git-repository-url> /extract-subtitles
+cd /extract-subtitles
+```
+
+如果确认旧目录内容可以由仓库版本接管，也可以原地关联远程仓库：
 
 ```bash
 cd /extract-subtitles
 git init
 git remote add origin <your-git-repository-url>
 git fetch origin
-git branch --set-upstream-to=origin/main main
+git checkout -B main origin/main
 ```
 
-如果仓库默认分支不是 `main`，把上面的 `main` 替换为实际分支名，例如 `master`。关联前建议先执行 `git status` 确认目录里没有不需要保留的临时文件。
-
-后续命令都以该目录为例：
-
-```bash
-cd /extract-subtitles
-```
+如果仓库默认分支不是 `main`，把上面的 `main` 替换为实际分支名，例如 `master`。原地关联前建议先执行 `git status`，确认没有需要保留但未备份的本地文件。
 
 服务器目录建议保持为：
 
 ```text
 /extract-subtitles/
-  server/    后端代码
-  web/       前端本地打包后的静态文件
+  server/      后端代码
+  frontend/    前端源码
+  web/         前端本地打包后提交到 Git 的静态文件
 ```
 
-也可以只上传 `server/` 目录和项目说明文件；`web/` 目录放本地构建后的前端静态产物。
-
-### 3. 配置后端环境变量
+### 4. 配置后端环境变量
 
 ```bash
 cd /extract-subtitles/server
@@ -128,7 +153,7 @@ SUBTITLE_REQUEST_TIMEOUT_MS=30000
 - 如果前端和 API 都通过同一个域名访问，浏览器请求是同源的；`CORS_ORIGIN` 保留当前域名即可。
 - 如果截图较大导致接口返回“请求体过大”，可以适当调大 `JSON_BODY_LIMIT`。
 
-### 4. 启动后端 API
+### 5. 启动后端 API
 
 ```bash
 cd /extract-subtitles/server
@@ -147,41 +172,7 @@ curl http://127.0.0.1:3001/api/extract-subtitle
 
 `curl` 使用 GET 访问会返回接口不存在或方法不匹配类响应，只要能连通本机 `3001` 端口，说明后端进程已在监听。
 
-### 5. 在本地构建前端
-
-在本地开发机器执行：
-
-```bash
-cd frontend
-npm ci
-npm run build
-```
-
-构建产物会生成到：
-
-```bash
-frontend/dist
-```
-
-前端代码使用相对路径 `/api` 调后端，所以生产环境需要由 Nginx 把 `/api` 转发到 `127.0.0.1:3001`。
-
-### 6. 上传前端产物
-
-在服务器创建静态文件目录：
-
-```bash
-mkdir -p /extract-subtitles/web
-```
-
-把本地 `frontend/dist/` 目录内的文件上传到服务器：
-
-```bash
-rsync -av --delete frontend/dist/ user@your-server:/extract-subtitles/web/
-```
-
-如果使用 Windows 图形化工具上传，也只需要上传 `frontend/dist` 里的文件，不需要上传 `node_modules`。
-
-### 7. 配置 Nginx
+### 6. 配置 Nginx
 
 新增站点配置，例如 `/etc/nginx/conf.d/extract-subtitles.conf`：
 
@@ -219,7 +210,7 @@ systemctl reload nginx
 
 如使用 HTTPS，建议通过服务器已有证书方案或 Certbot 给 `your-domain.com` 配置证书，并让 `80` 跳转到 `443`。
 
-### 8. 验证部署
+### 7. 验证部署
 
 浏览器访问：
 
@@ -235,27 +226,47 @@ http://your-domain.com/
 - 翻译接口 `/api/translate-subtitle` 能返回结果。
 - 浏览器控制台没有跨域错误。
 
-### 9. 更新版本
+### 8. 更新版本
 
-后续更新代码后，先在本地重新打包前端：
+后续更新代码后，先在本地提交源码；如果前端代码有更新，需要重新构建并同步到 `web/` 后一起提交：
 
-```bash
+```powershell
 cd frontend
 npm ci
 npm run build
-rsync -av --delete dist/ user@your-server:/extract-subtitles/web/
+
+cd ..
+Remove-Item -Recurse -Force web -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path web | Out-Null
+Copy-Item -Recurse frontend\dist\* web\
+
+git status
+git add <changed-files> web
+git commit -m "update"
+git push
 ```
 
-如果后端代码也有更新，再到服务器执行：
+不要把 `.env`、上传文件、日志、`frontend/dist/` 或其他本地临时文件提交到仓库；`web/` 是要随前端发布一起提交的静态文件目录。
+
+服务器只通过 Git 拉取最新代码和静态文件：
 
 ```bash
 cd /extract-subtitles
-git pull
+git pull --ff-only
+```
 
-cd server
+如果后端代码或依赖有更新，重启后端：
+
+```bash
+cd /extract-subtitles/server
 npm install --omit=dev
 pm2 restart extract-subtitles-api
+```
 
+如果 Nginx 配置有调整，再检查并重载：
+
+```bash
+nginx -t
 systemctl reload nginx
 ```
 
