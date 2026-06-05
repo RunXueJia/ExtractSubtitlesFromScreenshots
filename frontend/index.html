@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Extract Subtitles From Screenshots</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="source-panel">
+        <header class="brand">
+          <span class="brand-mark">ES</span>
+          <div>
+            <h1>字幕截图提取</h1>
+            <p>视频当前帧与截图字幕识别</p>
+          </div>
+        </header>
+
+        <section class="upload-zone" id="dropZone">
+          <input id="videoInput" type="file" accept="video/*" hidden />
+          <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+          <div>
+            <strong>载入素材</strong>
+            <span id="sourceName">选择视频，或拖入截图</span>
+          </div>
+          <div class="upload-actions">
+            <button id="pickVideo" class="primary-button" type="button">选择视频</button>
+            <button id="pickImage" class="secondary-button" type="button">选择截图</button>
+          </div>
+        </section>
+
+        <section class="viewer-panel">
+          <div class="media-wrap" id="mediaWrap">
+            <video id="video" playsinline controls></video>
+            <img id="imagePreview" alt="" />
+            <div id="emptyState" class="empty-state">
+              <h2>等待素材</h2>
+              <p>视频会在浏览器中播放，截帧通过 canvas 完成。</p>
+            </div>
+          </div>
+          <div class="timeline-row">
+            <button id="captureFrame" class="capture-button" type="button" disabled>截取当前帧</button>
+            <span id="timeLabel">00:00.000 / 00:00.000</span>
+          </div>
+        </section>
+
+        <section class="region-panel">
+          <div class="panel-title">
+            <h2>字幕区域</h2>
+            <span id="regionLabel">55% - 82%</span>
+          </div>
+          <label>
+            <span>顶部</span>
+            <input id="cropTop" type="range" min="0" max="90" step="1" value="55" />
+          </label>
+          <label>
+            <span>底部</span>
+            <input id="cropBottom" type="range" min="10" max="100" step="1" value="82" />
+          </label>
+          <button id="recognizeFrame" class="primary-button" type="button" disabled>识别字幕</button>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <section class="result-panel">
+          <div class="panel-title">
+            <h2>截帧预览</h2>
+            <span id="frameMeta">尚无截帧</span>
+          </div>
+          <div class="frame-grid">
+            <div class="frame-preview">
+              <img id="framePreview" alt="" />
+              <canvas id="scratchCanvas" hidden></canvas>
+            </div>
+            <div class="text-stack">
+              <div class="panel-title compact">
+                <h2>英文字幕</h2>
+                <span id="ocrStatus">未识别</span>
+              </div>
+              <div
+                id="subtitleText"
+                class="subtitle-editor"
+                contenteditable="true"
+                data-placeholder="识别结果会显示在这里，也可以直接修正。"
+              ></div>
+              <div class="panel-title compact">
+                <h2>中文翻译</h2>
+                <span id="translateStatus">待翻译</span>
+              </div>
+              <textarea id="translationText" class="translation-text" placeholder="翻译会显示在这里。"></textarea>
+            </div>
+          </div>
+          <div class="action-bar">
+            <button id="translateText" class="secondary-button" type="button" disabled>翻译</button>
+            <button id="saveText" class="secondary-button" type="button" disabled>保存文本</button>
+            <button id="copyFrame" class="secondary-button" type="button" disabled>复制图片</button>
+            <button id="downloadFrame" class="secondary-button" type="button" disabled>下载 PNG</button>
+          </div>
+        </section>
+
+        <section class="history-panel">
+          <div class="panel-title">
+            <h2>本地历史</h2>
+            <span id="historyCount">0</span>
+          </div>
+          <div id="historyList" class="history-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
