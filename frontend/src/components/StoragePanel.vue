@@ -1,5 +1,5 @@
 <template>
-  <ModulePanel class="storage-panel" :attention="attention">
+  <ModulePanel class="storage-panel" :attention="needsSetup">
     <div>
       <strong>保存目录</strong>
       <span>{{ storageLabel }}</span>
@@ -9,18 +9,23 @@
 </template>
 
 <script setup>
+import { computed } from 'vue';
 import { Download } from '@element-plus/icons-vue';
 
 import ModulePanel from './ModulePanel.vue';
 
-defineProps({
-  storageLabel: {
+const props = defineProps({
+  storageStatus: {
     type: String,
     required: true
   },
-  attention: {
-    type: Boolean,
-    default: false
+  outputDirectoryName: {
+    type: String,
+    default: ''
+  },
+  storageError: {
+    type: String,
+    default: ''
   },
   busy: {
     type: Boolean,
@@ -29,4 +34,15 @@ defineProps({
 });
 
 defineEmits(['choose']);
+
+const needsSetup = computed(() => props.storageStatus !== 'ready');
+
+const storageLabel = computed(() => {
+  if (props.storageStatus === 'checking') return '正在检查目录授权';
+  if (props.storageStatus === 'ready') return props.outputDirectoryName ? `已连接 ${props.outputDirectoryName}` : '已连接';
+  if (props.storageStatus === 'unsupported') return '当前浏览器不支持目录保存';
+  if (props.storageStatus === 'needs-permission') return '需要重新授权保存目录';
+  if (props.storageStatus === 'error') return props.storageError || '目录不可用';
+  return '首次使用请选择保存目录';
+});
 </script>

@@ -68,10 +68,6 @@ const props = defineProps({
     type: Object,
     default: null
   },
-  frameMeta: {
-    type: String,
-    required: true
-  },
   subtitleText: {
     type: String,
     required: true
@@ -80,23 +76,11 @@ const props = defineProps({
     type: String,
     required: true
   },
-  markedSubtitleHtml: {
-    type: String,
-    default: ''
-  },
   ocrStatus: {
     type: String,
     required: true
   },
   translateStatus: {
-    type: String,
-    required: true
-  },
-  ocrTagType: {
-    type: String,
-    required: true
-  },
-  translateTagType: {
     type: String,
     required: true
   },
@@ -117,6 +101,18 @@ const emit = defineEmits([
 
 const scratchCanvasRef = ref(null);
 
+const frameMeta = computed(() => {
+  const frame = props.currentFrame;
+  if (!frame) return '尚无截帧';
+  return `${frame.width} x ${frame.height}${frame.bytes ? ` · ${frame.bytes}` : ''}`;
+});
+
+const markedSubtitleHtml = computed(() => renderMarkedSubtitle(props.subtitleText));
+const ocrTagType = computed(() => (props.ocrStatus.includes('失败') ? 'danger' : props.ocrStatus.includes('已') ? 'success' : 'info'));
+const translateTagType = computed(() =>
+  props.translateStatus.includes('失败') ? 'danger' : props.translateStatus.includes('已') ? 'success' : 'info'
+);
+
 const subtitleModel = computed({
   get: () => props.subtitleText,
   set: value => emit('update:subtitleText', value)
@@ -126,6 +122,32 @@ const translationModel = computed({
   get: () => props.translationText,
   set: value => emit('update:translationText', value)
 });
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function renderMarkedSubtitle(value) {
+  const source = String(value || '');
+  const parts = [];
+  let cursor = 0;
+  const markPattern = /<mark>(.*?)<\/mark>/gis;
+  let match;
+
+  while ((match = markPattern.exec(source))) {
+    parts.push(escapeHtml(source.slice(cursor, match.index)));
+    parts.push(`<span class="marked-token">${escapeHtml(match[1])}</span>`);
+    cursor = match.index + match[0].length;
+  }
+
+  parts.push(escapeHtml(source.slice(cursor)));
+  return parts.join('').replace(/\n/g, '<br>');
+}
 
 defineExpose({
   getScratchCanvasElement: () => scratchCanvasRef.value

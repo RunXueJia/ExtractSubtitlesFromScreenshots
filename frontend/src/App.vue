@@ -3,23 +3,28 @@
     <aside class="source-panel">
       <BrandHeader />
       <SourceUploadPanel :source-name="sourceName" @select-source="handleSourceFile" @reject-source="showUnsupportedSource" />
-      <StoragePanel :storage-label="storageLabel" :attention="storageNeedsSetup" :busy="busy" @choose="chooseOutputDirectory" />
+      <StoragePanel
+        :storage-status="storageStatus"
+        :output-directory-name="outputDirectoryName"
+        :storage-error="storageError"
+        :busy="busy"
+        @choose="chooseOutputDirectory"
+      />
       <MediaViewerPanel
         ref="mediaViewerRef"
         :source-type="sourceType"
-        :time-label="timeLabel"
+        :source-url="sourceUrl"
         :busy="busy"
-        @sync-timeline="syncTimeline"
         @capture="captureVideoFrame"
+        @image-ready="handleImageReady"
+        @image-error="handleImageError"
       />
       <SubtitleRegionPanel
         v-model:crop-top="cropTop"
         v-model:crop-bottom="cropBottom"
-        :region-label="regionLabel"
         :current-frame="currentFrame"
         :busy="busy"
         :ocr-status="ocrStatus"
-        @normalize-region="normalizeRegion"
         @recognize="recognizeCurrentFrame"
       />
     </aside>
@@ -30,25 +35,21 @@
         v-model:subtitle-text="subtitleText"
         v-model:translation-text="translationText"
         :current-frame="currentFrame"
-        :frame-meta="frameMeta"
-        :marked-subtitle-html="markedSubtitleHtml"
         :ocr-status="ocrStatus"
         :translate-status="translateStatus"
-        :ocr-tag-type="ocrTagType"
-        :translate-tag-type="translateTagType"
         :busy="busy"
         @translate="translateCurrentText"
         @save="saveCurrentText"
         @copy="copyCurrentFrame"
         @download="downloadCurrentFrame"
       />
-      <HistoryPanel :history="history" :selected-id="selectedId" :format-time="formatTime" @select="selectFrame" @delete="deleteHistory" />
+      <HistoryPanel :history="history" :selected-id="selectedId" @select="selectFrame" @delete="deleteHistory" />
     </main>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import { ElMessage } from 'element-plus';
 
 import { extractSubtitle, translateSubtitle } from './api/client.js';
@@ -86,33 +87,10 @@ const history = ref([]);
 const busy = ref(false);
 const cropTop = ref(55);
 const cropBottom = ref(82);
-const timeLabel = ref('00:00.000 / 00:00.000');
 const subtitleText = ref('');
 const translationText = ref('');
 const ocrStatus = ref('未识别');
 const translateStatus = ref('待翻译');
-
-const storageNeedsSetup = computed(() => storageStatus.value !== 'ready');
-const storageLabel = computed(() => {
-  if (storageStatus.value === 'checking') return '正在检查目录授权';
-  if (storageStatus.value === 'ready') return outputDirectoryName.value ? `已连接 ${outputDirectoryName.value}` : '已连接';
-  if (storageStatus.value === 'unsupported') return '当前浏览器不支持目录保存';
-  if (storageStatus.value === 'needs-permission') return '需要重新授权保存目录';
-  if (storageStatus.value === 'error') return storageError.value || '目录不可用';
-  return '首次使用请选择保存目录';
-});
-const regionLabel = computed(() => `${cropTop.value}% - ${cropBottom.value}%`);
-const frameMeta = computed(() => {
-  const frame = currentFrame.value;
-  if (!frame) return '尚无截帧';
-  return `${frame.width} x ${frame.height}${frame.bytes ? ` · ${frame.bytes}` : ''}`;
-});
-
-const markedSubtitleHtml = computed(() => renderMarkedSubtitle(subtitleText.value));
-const ocrTagType = computed(() => (ocrStatus.value.includes('失败') ? 'danger' : ocrStatus.value.includes('已') ? 'success' : 'info'));
-const translateTagType = computed(() =>
-  translateStatus.value.includes('失败') ? 'danger' : translateStatus.value.includes('已') ? 'success' : 'info'
-);
 
 function readLegacyHistory() {
   for (const key of LEGACY_HISTORY_KEYS) {
@@ -206,14 +184,6 @@ function toHistoryIndex(item) {
 
 function previewText(value) {
   return String(value || '').trim().replace(/\s+/g, ' ').slice(0, HISTORY_PREVIEW_LENGTH);
-}
-
-function formatTime(seconds) {
-  const value = Number.isFinite(seconds) ? seconds : 0;
-  const mins = Math.floor(value / 60);
-  const secs = Math.floor(value % 60);
-  const ms = Math.floor((value % 1) * 1000);
-  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
 }
 
 function formatBytes(bytes) {
@@ -518,38 +488,6 @@ async function hydrateHistoryFromStorage() {
   history.value = nextHistory;
 }
 
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-}
-
-function renderMarkedSubtitle(value) {
-  const source = String(value || '');
-  const parts = [];
-  let cursor = 0;
-  const markPattern = /<mark>(.*?)<\/mark>/gis;
-  let match;
-
-  while ((match = markPattern.exec(source))) {
-    parts.push(escapeHtml(source.slice(cursor, match.index)));
-    parts.push(`<span class="marked-token">${escapeHtml(match[1])}</span>`);
-    cursor = match.index + match[0].length;
-  }
-
-  parts.push(escapeHtml(source.slice(cursor)));
-  return parts.join('').replace(/\n/g, '<br>');
-}
-
-function normalizeRegion() {
-  if (cropBottom.value <= cropTop.value + 8) {
-    cropBottom.value = Math.min(100, cropTop.value + 8);
-  }
-}
-
 function clearFrameText() {
   subtitleText.value = '';
   translationText.value = '';
@@ -600,38 +538,24 @@ async function setSource(file, type) {
       return;
     }
 
-    video.src = sourceUrl.value;
-    syncTimeline();
     ElMessage.success('视频已载入');
     return;
   }
+}
 
-  const image = getImageElement();
-  if (!image) {
-    ElMessage.error('截图预览尚未准备好。');
+async function handleImageReady() {
+  if (sourceType.value !== 'image') return;
+  if (!hasOutputDirectoryPermission()) {
+    ElMessage.warning('截图已载入，请先选择保存目录。');
     return;
   }
 
-  image.onload = async () => {
-    if (!hasOutputDirectoryPermission()) {
-      ElMessage.warning('截图已载入，请先选择保存目录。');
-      return;
-    }
-
-    await captureImagePreview();
-  };
-  image.onerror = () => {
-    ElMessage.error('截图载入失败。');
-  };
-  image.src = sourceUrl.value;
+  await captureImagePreview();
 }
 
-function syncTimeline() {
-  const video = getVideoElement();
-  if (!video) return;
-  const current = video.currentTime || 0;
-  const duration = Number.isFinite(video.duration) ? video.duration : 0;
-  timeLabel.value = `${formatTime(current)} / ${formatTime(duration)}`;
+function handleImageError() {
+  if (sourceType.value !== 'image') return;
+  ElMessage.error('截图载入失败。');
 }
 
 async function createFrameItem(blob, meta = {}) {
@@ -752,7 +676,6 @@ async function prepareSubtitleImage(frame) {
     };
   });
 
-  normalizeRegion();
   const cropX = Math.floor(image.naturalWidth * 0.08);
   const cropWidth = Math.floor(image.naturalWidth * 0.84);
   const cropY = Math.floor(image.naturalHeight * (cropTop.value / 100));

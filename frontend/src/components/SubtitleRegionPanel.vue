@@ -7,11 +7,11 @@
     </PanelTitle>
     <label>
       <span>顶部</span>
-      <el-slider v-model="topValue" :min="0" :max="90" :step="1" @input="$emit('normalize-region')" />
+      <el-slider v-model="topValue" :min="0" :max="90" :step="1" />
     </label>
     <label>
       <span>底部</span>
-      <el-slider v-model="bottomValue" :min="10" :max="100" :step="1" @input="$emit('normalize-region')" />
+      <el-slider v-model="bottomValue" :min="10" :max="100" :step="1" />
     </label>
     <el-button type="primary" :icon="View" :loading="ocrStatus === '识别中'" :disabled="!currentFrame || busy" @click="$emit('recognize')">
       识别字幕
@@ -35,10 +35,6 @@ const props = defineProps({
     type: Number,
     required: true
   },
-  regionLabel: {
-    type: String,
-    required: true
-  },
   currentFrame: {
     type: Object,
     default: null
@@ -53,15 +49,25 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['update:cropTop', 'update:cropBottom', 'normalize-region', 'recognize']);
+const emit = defineEmits(['update:cropTop', 'update:cropBottom', 'recognize']);
+
+const regionLabel = computed(() => `${props.cropTop}% - ${props.cropBottom}%`);
+
+function normalizeRegion(top, bottom) {
+  if (bottom <= top + 8) return Math.min(100, top + 8);
+  return bottom;
+}
 
 const topValue = computed({
   get: () => props.cropTop,
-  set: value => emit('update:cropTop', value)
+  set: value => {
+    emit('update:cropTop', value);
+    emit('update:cropBottom', normalizeRegion(value, props.cropBottom));
+  }
 });
 
 const bottomValue = computed({
   get: () => props.cropBottom,
-  set: value => emit('update:cropBottom', value)
+  set: value => emit('update:cropBottom', normalizeRegion(props.cropTop, value))
 });
 </script>
