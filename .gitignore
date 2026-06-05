@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.vite/
+.env
+*.log
+server/uploads/
+server/tmp/
+frontend/node_modules/
+frontend/dist/
+server/node_modules/

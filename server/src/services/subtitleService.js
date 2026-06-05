@@ -33,14 +33,14 @@ function validateText(text) {
 
 async function extractSubtitle(body) {
   assertPlainObject(body);
-  const subtitle = await extractSubtitleFromImage(validateImageDataUrl(body.imageDataUrl));
-  return { subtitle };
+  const text = await extractSubtitleFromImage(validateImageDataUrl(body.imageDataUrl));
+  return { text };
 }
 
 async function translateSubtitle(body) {
   assertPlainObject(body);
-  const translation = await translateSubtitleToChinese(validateText(body.text));
-  return { translation };
+  const text = await translateSubtitleToChinese(validateText(body.text));
+  return { text };
 }
 
 module.exports = {
