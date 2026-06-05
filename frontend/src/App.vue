@@ -1,9 +1,10 @@
 <template>
   <div class="app-shell">
-    <aside class="source-panel">
+    <aside class="source-panel" :class="{ 'source-panel--without-storage': !fileSystemAccessSupported }">
       <BrandHeader />
       <SourceUploadPanel :source-name="sourceName" @select-source="handleSourceFile" @reject-source="showUnsupportedSource" />
       <StoragePanel
+        v-if="fileSystemAccessSupported"
         :storage-status="storageStatus"
         :output-directory-name="outputDirectoryName"
         :storage-error="storageError"
@@ -40,7 +41,7 @@
         @recognize="recognizeCurrentFrame"
         @select-image="handleFramePreviewImage"
         @reject-image="showUnsupportedSource"
-        @save="saveCurrentText"
+        @copy-text="copyCurrentText"
         @copy="copyCurrentFrame"
         @clear="clearCurrentFrame"
       />
@@ -91,6 +92,7 @@ const translationText = ref('');
 const ocrStatus = ref('未识别');
 const translateStatus = ref('待翻译');
 const sessionCaptureReminderShown = ref(false);
+const fileSystemAccessSupported = supportsFileSystemAccess();
 const showImageFileActions = isHttpsOrLocalhostPage();
 
 function isLocalhostHostname(hostname) {
@@ -424,6 +426,46 @@ function supportsNativeImageClipboard() {
   return typeof ClipboardItemConstructor.supports !== 'function' || ClipboardItemConstructor.supports('image/png');
 }
 
+function getCurrentTranslationClipboardContent() {
+  return translationText.value.trim();
+}
+
+function copyTextWithFallback(text) {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.readOnly = true;
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.top = '0';
+  textarea.style.opacity = '0';
+
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+
+  try {
+    if (!document.execCommand('copy')) {
+      throw new Error('当前页面不支持复制文本，请手动复制。');
+    }
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fall through to the textarea path for browsers that expose but reject Clipboard API.
+    }
+  }
+
+  copyTextWithFallback(text);
+}
+
 function createFrameDownloadUrl(blob) {
   return URL.createObjectURL(normalizeFrameImageBlob(blob));
 }
@@ -710,6 +752,7 @@ async function createFrameItem(blob, meta = {}) {
 }
 
 function showSessionCaptureReminder() {
+  if (!fileSystemAccessSupported) return;
   if (hasOutputDirectoryPermission() || sessionCaptureReminderShown.value) return;
   sessionCaptureReminderShown.value = true;
   ElMessage.warning('未选择保存目录，本次截帧只保留在当前窗口会话中，刷新后会丢失。');
@@ -899,16 +942,20 @@ async function translateCurrentText() {
   }
 }
 
-async function saveCurrentText() {
+async function copyCurrentText() {
   if (!currentFrame.value) return;
+
+  const text = getCurrentTranslationClipboardContent();
+  if (!text) {
+    ElMessage.warning('没有可复制的翻译文本。');
+    return;
+  }
+
   try {
-    await updateSelectedFrame({
-      text: subtitleText.value.trim(),
-      translation: translationText.value.trim()
-    });
-    ElMessage.success(currentFrame.value.storageMode === 'session' ? '文本已更新，本次会话有效' : '文本已保存');
+    await copyTextToClipboard(text);
+    ElMessage.success('文本已复制到剪贴板');
   } catch (error) {
-    ElMessage.error(error.message || '文本保存失败');
+    ElMessage.error(error.message || '文本复制失败');
   }
 }
 
@@ -934,7 +981,7 @@ async function copyCurrentFrame() {
 }
 
 onMounted(async () => {
-  if (!supportsFileSystemAccess()) {
+  if (!fileSystemAccessSupported) {
     storageStatus.value = 'unsupported';
     return;
   }

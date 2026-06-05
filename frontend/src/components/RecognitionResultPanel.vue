@@ -144,10 +144,10 @@
         翻译
       </el-button>
       <el-button
-        :icon="DocumentChecked"
+        :icon="DocumentCopy"
         :disabled="!currentFrame || busy"
-        @click="$emit('save')"
-        >保存文本</el-button
+        @click="$emit('copy-text')"
+        >复制文本</el-button
       >
       <el-button
         v-if="showImageActions"
@@ -184,7 +184,7 @@ import {
 } from "vue";
 import {
   CopyDocument,
-  DocumentChecked,
+  DocumentCopy,
   Download,
   Switch,
   View,
@@ -256,7 +256,7 @@ const emit = defineEmits([
   "update:translationText",
   "recognize",
   "translate",
-  "save",
+  "copy-text",
   "copy",
   "clear",
   "select-image",

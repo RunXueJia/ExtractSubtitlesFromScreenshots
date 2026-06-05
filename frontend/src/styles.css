@@ -130,6 +130,10 @@ textarea,
   scrollbar-gutter: stable;
 }
 
+.source-panel--without-storage {
+  grid-template-rows: auto auto minmax(0, auto) minmax(170px, 1fr);
+}
+
 .workspace {
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
@@ -407,6 +411,7 @@ input[type="range"] {
 
 .source-panel .history-panel {
   min-height: 170px;
+  height: 100%;
 }
 
 .frame-grid {
@@ -690,6 +695,7 @@ input[type="range"] {
   display: grid;
   align-content: start;
   gap: 8px;
+  flex: 1;
   min-height: 0;
   overflow: auto;
   padding-right: 4px;
