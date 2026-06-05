@@ -19,19 +19,14 @@
         @image-ready="handleImageReady"
         @image-error="handleImageError"
       />
-      <SubtitleRegionPanel
-        v-model:crop-top="cropTop"
-        v-model:crop-bottom="cropBottom"
-        :current-frame="currentFrame"
-        :busy="busy"
-        :ocr-status="ocrStatus"
-        @recognize="recognizeCurrentFrame"
-      />
+      <HistoryPanel :history="history" :selected-id="selectedId" @select="selectFrame" @delete="deleteHistory" />
     </aside>
 
     <main class="workspace">
       <RecognitionResultPanel
         ref="resultPanelRef"
+        v-model:crop-top="cropTop"
+        v-model:crop-bottom="cropBottom"
         v-model:subtitle-text="subtitleText"
         v-model:translation-text="translationText"
         :current-frame="currentFrame"
@@ -39,11 +34,13 @@
         :translate-status="translateStatus"
         :busy="busy"
         @translate="translateCurrentText"
+        @recognize="recognizeCurrentFrame"
+        @select-image="handleFramePreviewImage"
+        @reject-image="showUnsupportedSource"
         @save="saveCurrentText"
         @copy="copyCurrentFrame"
         @download="downloadCurrentFrame"
       />
-      <HistoryPanel :history="history" :selected-id="selectedId" @select="selectFrame" @delete="deleteHistory" />
     </main>
   </div>
 </template>
@@ -59,7 +56,6 @@ import MediaViewerPanel from './components/MediaViewerPanel.vue';
 import RecognitionResultPanel from './components/RecognitionResultPanel.vue';
 import SourceUploadPanel from './components/SourceUploadPanel.vue';
 import StoragePanel from './components/StoragePanel.vue';
-import SubtitleRegionPanel from './components/SubtitleRegionPanel.vue';
 
 const LEGACY_HISTORY_KEYS = ['extract-subtitles.history.v2', 'extract-subtitles.history.v1'];
 const MAX_HISTORY = 20;
@@ -520,6 +516,10 @@ function showUnsupportedSource() {
   ElMessage.warning('只支持视频或图片文件。');
 }
 
+function handleFramePreviewImage(file) {
+  setSource(file, 'image');
+}
+
 async function setSource(file, type) {
   if (!file) return;
   revokeSourceUrl();
@@ -851,7 +851,6 @@ onMounted(async () => {
     storageStatus.value = permission === 'granted' ? 'ready' : 'needs-permission';
     if (permission === 'granted') {
       await hydrateHistoryFromStorage();
-      if (history.value[0]) await selectFrame(history.value[0]);
     }
   } catch (error) {
     storageStatus.value = 'error';

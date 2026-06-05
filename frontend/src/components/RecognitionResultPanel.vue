@@ -6,14 +6,63 @@
       </template>
     </PanelTitle>
     <div class="frame-grid">
-      <div class="frame-preview">
-        <template v-if="currentFrame?.previewUrl">
-          <img class="frame-preview-bg" :src="currentFrame.previewUrl" alt="" aria-hidden="true" />
-          <img class="frame-preview-image" :src="currentFrame.previewUrl" alt="" />
-        </template>
-        <el-empty v-else-if="currentFrame" description="需要重新授权目录" />
-        <el-empty v-else description="暂无截帧" />
-        <canvas ref="scratchCanvasRef" hidden></canvas>
+      <div class="frame-side">
+        <input ref="imageInputRef" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="handleImageChange" />
+        <div
+          class="frame-preview"
+          :class="{ 'frame-preview--empty': canImportImage, 'frame-preview--drop-ready': isDraggingImage }"
+          :tabindex="canImportImage ? 0 : undefined"
+          :aria-label="canImportImage ? '点击选择图片，或拖拽、粘贴图片到截帧预览区' : undefined"
+          @click="chooseImage"
+          @dragenter.prevent="handleFrameDragover"
+          @dragover.prevent="handleFrameDragover"
+          @dragleave="handleFrameDragleave"
+          @drop.prevent="handleFrameDrop"
+          @keydown.enter.prevent="chooseImage"
+          @keydown.space.prevent="chooseImage"
+          @paste="handleFramePaste"
+        >
+          <template v-if="currentFrame?.previewUrl">
+            <img class="frame-preview-bg" :src="currentFrame.previewUrl" alt="" aria-hidden="true" />
+            <img class="frame-preview-image" :src="currentFrame.previewUrl" alt="" />
+          </template>
+          <el-empty v-else-if="currentFrame" description="需要重新授权目录" />
+          <el-empty v-else description="暂无截帧">
+            <template #description>
+              <div class="frame-empty-copy">
+                <strong>暂无截帧</strong>
+                <span>点击选择图片，或拖拽、粘贴图片</span>
+              </div>
+            </template>
+          </el-empty>
+          <canvas ref="scratchCanvasRef" hidden></canvas>
+        </div>
+
+        <div class="region-controls">
+          <PanelTitle title="字幕区域" compact>
+            <template #meta>
+              <el-tag type="info">{{ regionLabel }}</el-tag>
+            </template>
+          </PanelTitle>
+          <label>
+            <span>顶部</span>
+            <el-slider v-model="topValue" :min="0" :max="90" :step="1" />
+          </label>
+          <label>
+            <span>底部</span>
+            <el-slider v-model="bottomValue" :min="10" :max="100" :step="1" />
+          </label>
+          <el-button
+            class="region-recognize-button"
+            type="primary"
+            :icon="View"
+            :loading="ocrStatus === '识别中'"
+            :disabled="!currentFrame || busy"
+            @click="$emit('recognize')"
+          >
+            识别字幕
+          </el-button>
+        </div>
       </div>
 
       <div class="text-stack">
@@ -71,7 +120,7 @@
 
 <script setup>
 import { computed, ref } from 'vue';
-import { CopyDocument, DocumentChecked, Download, Switch } from '@element-plus/icons-vue';
+import { CopyDocument, DocumentChecked, Download, Switch, View } from '@element-plus/icons-vue';
 
 import ModulePanel from './ModulePanel.vue';
 import PanelTitle from './PanelTitle.vue';
@@ -80,6 +129,14 @@ const props = defineProps({
   currentFrame: {
     type: Object,
     default: null
+  },
+  cropTop: {
+    type: Number,
+    required: true
+  },
+  cropBottom: {
+    type: Number,
+    required: true
   },
   subtitleText: {
     type: String,
@@ -104,15 +161,22 @@ const props = defineProps({
 });
 
 const emit = defineEmits([
+  'update:cropTop',
+  'update:cropBottom',
   'update:subtitleText',
   'update:translationText',
+  'recognize',
   'translate',
   'save',
   'copy',
-  'download'
+  'download',
+  'select-image',
+  'reject-image'
 ]);
 
 const scratchCanvasRef = ref(null);
+const imageInputRef = ref(null);
+const isDraggingImage = ref(false);
 
 const frameMeta = computed(() => {
   const frame = props.currentFrame;
@@ -120,11 +184,14 @@ const frameMeta = computed(() => {
   return `${frame.width} x ${frame.height}${frame.bytes ? ` · ${frame.bytes}` : ''}`;
 });
 
+const canImportImage = computed(() => !props.currentFrame && !props.busy);
 const markedSubtitleHtml = computed(() => renderMarkedSubtitle(props.subtitleText));
 const ocrTagType = computed(() => (props.ocrStatus.includes('失败') ? 'danger' : props.ocrStatus.includes('已') ? 'success' : 'info'));
 const translateTagType = computed(() =>
   props.translateStatus.includes('失败') ? 'danger' : props.translateStatus.includes('已') ? 'success' : 'info'
 );
+
+const regionLabel = computed(() => `${props.cropTop}% - ${props.cropBottom}%`);
 
 const subtitleModel = computed({
   get: () => props.subtitleText,
@@ -135,6 +202,116 @@ const translationModel = computed({
   get: () => props.translationText,
   set: value => emit('update:translationText', value)
 });
+
+const topValue = computed({
+  get: () => props.cropTop,
+  set: value => {
+    emit('update:cropTop', value);
+    emit('update:cropBottom', normalizeRegion(value, props.cropBottom));
+  }
+});
+
+const bottomValue = computed({
+  get: () => props.cropBottom,
+  set: value => emit('update:cropBottom', normalizeRegion(props.cropTop, value))
+});
+
+function normalizeRegion(top, bottom) {
+  if (bottom <= top + 8) return Math.min(100, top + 8);
+  return bottom;
+}
+
+function isImageFile(file) {
+  return Boolean(file?.type?.startsWith('image/'));
+}
+
+function hasImageTransferItem(items) {
+  return Array.from(items || []).some(item => item.kind === 'file' && (!item.type || item.type.startsWith('image/')));
+}
+
+function getImageFileFromItems(items) {
+  for (const item of Array.from(items || [])) {
+    if (item.kind !== 'file' || !item.type.startsWith('image/')) continue;
+    const file = item.getAsFile();
+    if (file) return file;
+  }
+
+  return null;
+}
+
+function getImageFileFromFiles(files) {
+  return Array.from(files || []).find(isImageFile) || null;
+}
+
+function getImageFileNameExtension(type) {
+  if (type === 'image/jpeg') return 'jpg';
+  if (type === 'image/webp') return 'webp';
+  if (type === 'image/gif') return 'gif';
+  return 'png';
+}
+
+function ensureNamedImageFile(file, prefix = 'pasted-image') {
+  if (file.name) return file;
+
+  const extension = getImageFileNameExtension(file.type);
+  return new File([file], `${prefix}-${Date.now()}.${extension}`, {
+    type: file.type || 'image/png',
+    lastModified: file.lastModified || Date.now()
+  });
+}
+
+function emitImageFile(file, prefix) {
+  if (!canImportImage.value || !file) return;
+  emit('select-image', ensureNamedImageFile(file, prefix));
+}
+
+function chooseImage() {
+  if (!canImportImage.value) return;
+  imageInputRef.value?.click();
+}
+
+function handleImageChange(event) {
+  emitImageFile(event.target.files?.[0], 'selected-image');
+  event.target.value = '';
+}
+
+function handleFrameDragover(event) {
+  if (!canImportImage.value) return;
+
+  if (hasImageTransferItem(event.dataTransfer?.items) || getImageFileFromFiles(event.dataTransfer?.files)) {
+    isDraggingImage.value = true;
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+  } else if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'none';
+  }
+}
+
+function handleFrameDragleave(event) {
+  if (event.currentTarget.contains(event.relatedTarget)) return;
+  isDraggingImage.value = false;
+}
+
+function handleFrameDrop(event) {
+  isDraggingImage.value = false;
+  if (!canImportImage.value) return;
+
+  const file = getImageFileFromFiles(event.dataTransfer?.files) || getImageFileFromItems(event.dataTransfer?.items);
+  if (file) {
+    emitImageFile(file, 'dropped-image');
+  } else {
+    emit('reject-image');
+  }
+}
+
+function handleFramePaste(event) {
+  if (!canImportImage.value) return;
+
+  const file = getImageFileFromFiles(event.clipboardData?.files) || getImageFileFromItems(event.clipboardData?.items);
+  if (!file) return;
+
+  event.preventDefault();
+  emitImageFile(file, 'pasted-image');
+}
 
 function escapeHtml(value) {
   return String(value)

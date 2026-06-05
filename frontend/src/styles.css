@@ -107,9 +107,9 @@ textarea,
 .workspace,
 .text-stack,
 .viewer-panel,
-.region-panel,
 .result-panel,
 .frame-grid,
+.frame-side,
 .frame-preview,
 .history-panel {
   min-width: 0;
@@ -123,15 +123,14 @@ textarea,
 }
 
 .source-panel {
-  align-content: start;
-  grid-auto-rows: max-content;
+  grid-template-rows: auto auto auto minmax(0, auto) minmax(170px, 1fr);
   overflow: auto;
   padding-right: 2px;
   scrollbar-gutter: stable;
 }
 
 .workspace {
-  grid-template-rows: minmax(0, 1fr) minmax(190px, 0.34fr);
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -173,7 +172,6 @@ textarea,
 .upload-zone,
 .storage-panel,
 .viewer-panel,
-.region-panel,
 .result-panel,
 .history-panel {
   border: 1px solid var(--line);
@@ -184,9 +182,10 @@ textarea,
 
 .upload-zone {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
-  padding: 16px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
 }
 
 .storage-panel {
@@ -197,6 +196,7 @@ textarea,
   padding: 14px 16px;
 }
 
+.upload-zone > div,
 .storage-panel > div {
   min-width: 0;
 }
@@ -236,6 +236,16 @@ textarea,
   gap: 10px;
 }
 
+.upload-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.upload-actions .el-button {
+  padding-inline: 10px;
+}
+
 .upload-actions .el-button + .el-button,
 .timeline-row .el-button + .el-button,
 .action-bar .el-button + .el-button {
@@ -243,7 +253,6 @@ textarea,
 }
 
 .viewer-panel,
-.region-panel,
 .result-panel,
 .history-panel {
   padding: 14px;
@@ -349,21 +358,6 @@ textarea,
   margin: 0 0 8px;
 }
 
-.region-panel {
-  display: grid;
-  gap: 10px;
-  overflow: hidden;
-}
-
-.region-panel label {
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
 input[type="range"] {
   width: 100%;
   accent-color: var(--accent);
@@ -377,6 +371,10 @@ input[type="range"] {
   overflow: hidden;
 }
 
+.source-panel .history-panel {
+  min-height: 170px;
+}
+
 .frame-grid {
   display: grid;
   grid-template-columns: minmax(280px, 0.92fr) minmax(320px, 1.08fr);
@@ -384,6 +382,13 @@ input[type="range"] {
   min-height: 0;
   overflow: hidden;
   flex: 1;
+}
+
+.frame-side {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 12px;
+  min-height: 0;
 }
 
 .frame-preview {
@@ -398,9 +403,52 @@ input[type="range"] {
   isolation: isolate;
 }
 
+.frame-preview--empty {
+  cursor: pointer;
+  background: var(--panel-soft);
+  transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.frame-preview--empty:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(23, 111, 107, 0.12);
+}
+
+.frame-preview--drop-ready {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 4px rgba(23, 111, 107, 0.14);
+}
+
+.frame-empty-copy {
+  display: grid;
+  gap: 7px;
+  color: var(--ink);
+  text-align: center;
+}
+
+.frame-empty-copy strong,
+.frame-empty-copy span {
+  display: block;
+}
+
+.frame-empty-copy span {
+  color: #f56c6c;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1.35;
+  text-wrap: pretty;
+}
+
 .frame-preview img {
   display: block;
   grid-area: 1 / 1;
+}
+
+.frame-preview .el-empty {
+  position: relative;
+  z-index: 2;
 }
 
 .frame-preview-bg {
@@ -426,12 +474,35 @@ input[type="range"] {
 
 .frame-preview-image {
   position: relative;
-  max-width: 100%;
-  max-height: 100%;
-  width: auto;
-  height: auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   object-fit: contain;
   z-index: 2;
+}
+
+.region-controls {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-muted);
+  overflow: hidden;
+}
+
+.region-controls label {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.region-recognize-button {
+  justify-self: start;
 }
 
 .text-stack {
@@ -543,11 +614,11 @@ input[type="range"] {
 
 .history-item {
   display: grid;
-  grid-template-columns: 68px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 8px;
   min-width: 0;
-  min-height: 68px;
-  padding: 8px;
+  min-height: 58px;
+  padding: 7px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: var(--panel-muted);
@@ -573,8 +644,8 @@ input[type="range"] {
 }
 
 .history-item img {
-  width: 68px;
-  height: 68px;
+  width: 54px;
+  height: 54px;
   border-radius: 6px;
   background: var(--panel-soft);
   object-fit: contain;
@@ -582,8 +653,8 @@ input[type="range"] {
 
 .history-thumb {
   display: grid;
-  width: 68px;
-  height: 68px;
+  width: 54px;
+  height: 54px;
   place-items: center;
   border-radius: 6px;
   background: var(--panel-soft);
@@ -624,7 +695,7 @@ input[type="range"] {
   }
 
   .workspace {
-    grid-template-rows: auto auto;
+    grid-template-rows: auto;
   }
 
   .frame-grid {
@@ -659,6 +730,10 @@ input[type="range"] {
     grid-template-columns: 1fr;
   }
 
+  .upload-zone {
+    grid-template-columns: 1fr;
+  }
+
   .upload-actions button,
   .storage-panel button,
   .timeline-row button,
@@ -671,7 +746,6 @@ input[type="range"] {
   }
 
   .viewer-panel,
-  .region-panel,
   .result-panel,
   .history-panel,
   .upload-zone,
