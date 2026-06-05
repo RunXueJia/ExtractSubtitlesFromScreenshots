@@ -426,10 +426,6 @@ function supportsNativeImageClipboard() {
   return typeof ClipboardItemConstructor.supports !== 'function' || ClipboardItemConstructor.supports('image/png');
 }
 
-function getCurrentTranslationClipboardContent() {
-  return translationText.value.trim();
-}
-
 function copyTextWithFallback(text) {
   const textarea = document.createElement('textarea');
   textarea.value = text;
@@ -942,18 +938,19 @@ async function translateCurrentText() {
   }
 }
 
-async function copyCurrentText() {
+async function copyCurrentText(payload = {}) {
   if (!currentFrame.value) return;
 
-  const text = getCurrentTranslationClipboardContent();
+  const label = payload.label || '文本';
+  const text = String(payload.text ?? translationText.value).trim();
   if (!text) {
-    ElMessage.warning('没有可复制的翻译文本。');
+    ElMessage.warning(`没有可复制的${label}。`);
     return;
   }
 
   try {
     await copyTextToClipboard(text);
-    ElMessage.success('文本已复制到剪贴板');
+    ElMessage.success(`${label}已复制到剪贴板`);
   } catch (error) {
     ElMessage.error(error.message || '文本复制失败');
   }

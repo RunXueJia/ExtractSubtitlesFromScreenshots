@@ -97,16 +97,39 @@
               <el-tag :type="ocrTagType">{{ ocrStatus }}</el-tag>
             </template>
           </PanelTitle>
-          <el-input
-            v-model="subtitleModel"
-            class="subtitle-input"
-            type="textarea"
-            resize="none"
-            placeholder="识别结果" />
-          <div
-            v-if="markedSubtitleHtml"
-            class="marked-preview"
-            v-html="markedSubtitleHtml"></div>
+          <div class="text-area-shell">
+            <el-button
+              class="text-copy-button"
+              :icon="DocumentCopy"
+              circle
+              text
+              :disabled="!hasSubtitleText"
+              title="复制英文字幕"
+              aria-label="复制英文字幕"
+              @click="emitCopyText('英文字幕', subtitleText)" />
+            <div
+              class="subtitle-text-preview text-area-content"
+              :class="{ 'text-area-content--empty': !hasSubtitleText }"
+              v-text="hasSubtitleText ? subtitleText : '暂无识别结果'"></div>
+          </div>
+          <div class="text-area-shell">
+            <el-button
+              class="text-copy-button"
+              :icon="DocumentCopy"
+              circle
+              text
+              :disabled="!hasSubtitleMarkdownText"
+              title="复制英文字幕富文本"
+              aria-label="复制英文字幕富文本"
+              @click="emitCopyText('英文字幕富文本', subtitleRenderedText)" />
+            <div
+              v-if="markedSubtitleHtml"
+              class="marked-preview text-area-content"
+              v-html="markedSubtitleHtml"></div>
+            <div v-else class="marked-preview text-area-content text-area-content--empty">
+              暂无富文本预览
+            </div>
+          </div>
         </div>
 
         <div class="text-stack">
@@ -115,12 +138,40 @@
               <el-tag :type="translateTagType">{{ translateStatus }}</el-tag>
             </template>
           </PanelTitle>
-          <el-input
-            v-model="translationModel"
-            class="translation-input"
-            type="textarea"
-            resize="none"
-            placeholder="翻译结果" />
+          <div class="text-area-shell">
+            <el-button
+              class="text-copy-button"
+              :icon="DocumentCopy"
+              circle
+              text
+              :disabled="!hasTranslationText"
+              title="复制中文翻译"
+              aria-label="复制中文翻译"
+              @click="emitCopyText('中文翻译', translationText)" />
+            <div
+              class="translation-text-preview text-area-content"
+              :class="{ 'text-area-content--empty': !hasTranslationText }">
+              {{ hasTranslationText ? translationText : "暂无翻译结果" }}
+            </div>
+          </div>
+          <div class="text-area-shell">
+            <el-button
+              class="text-copy-button"
+              :icon="DocumentCopy"
+              circle
+              text
+              :disabled="!hasTranslationMarkdownText"
+              title="复制中文翻译富文本"
+              aria-label="复制中文翻译富文本"
+              @click="emitCopyText('中文翻译富文本', translationRenderedText)" />
+            <div
+              v-if="markedTranslationHtml"
+              class="marked-preview text-area-content"
+              v-html="markedTranslationHtml"></div>
+            <div v-else class="marked-preview text-area-content text-area-content--empty">
+              暂无富文本预览
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -145,10 +196,10 @@
       </el-button>
       <el-button
         :icon="DocumentCopy"
-        :disabled="!currentFrame || busy"
-        @click="$emit('copy-text')"
-        >复制文本</el-button
-      >
+        :disabled="!hasTranslationText"
+        @click="emitCopyText('中文翻译', translationText)">
+        复制文本
+      </el-button>
       <el-button
         v-if="showImageActions"
         class="action-button action-button--primary"
@@ -283,9 +334,24 @@ const canImportImage = computed(() => !props.currentFrame && !props.busy);
 const canDownload = computed(() =>
   Boolean(props.showImageActions && props.currentFrame && !props.busy && props.downloadUrl),
 );
+const subtitleMarkdownText = computed(() => props.subtitleText);
+const translationMarkdownText = computed(() => props.translationText);
 const markedSubtitleHtml = computed(() =>
-  renderMarkdownSubtitle(props.subtitleText),
+  renderMarkdownText(subtitleMarkdownText.value),
 );
+const markedTranslationHtml = computed(() =>
+  renderMarkdownText(translationMarkdownText.value),
+);
+const subtitleRenderedText = computed(() =>
+  renderMarkdownPlainText(subtitleMarkdownText.value),
+);
+const translationRenderedText = computed(() =>
+  renderMarkdownPlainText(translationMarkdownText.value),
+);
+const hasSubtitleText = computed(() => Boolean(props.subtitleText.trim()));
+const hasSubtitleMarkdownText = computed(() => Boolean(subtitleRenderedText.value));
+const hasTranslationText = computed(() => Boolean(props.translationText.trim()));
+const hasTranslationMarkdownText = computed(() => Boolean(translationRenderedText.value));
 const ocrTagType = computed(() =>
   props.ocrStatus.includes("失败")
     ? "danger"
@@ -306,6 +372,13 @@ function handleDownloadClick(event) {
   event.preventDefault();
 }
 
+function emitCopyText(label, text) {
+  emit("copy-text", {
+    label,
+    text: String(text || "").trim(),
+  });
+}
+
 const regionLabel = computed(() => `${props.cropTop}% - ${props.cropBottom}%`);
 const regionOverlayStyle = computed(() => {
   const box = previewImageBox.value;
@@ -319,16 +392,6 @@ const regionOverlayStyle = computed(() => {
     height: `${height}px`,
     visibility: box.width && box.height ? "visible" : "hidden",
   };
-});
-
-const subtitleModel = computed({
-  get: () => props.subtitleText,
-  set: (value) => emit("update:subtitleText", value),
-});
-
-const translationModel = computed({
-  get: () => props.translationText,
-  set: (value) => emit("update:translationText", value),
 });
 
 function clamp(value, min, max) {
@@ -581,14 +644,35 @@ function handleFramePaste(event) {
 function normalizeLegacyMarkTags(value) {
   const source = String(value || "");
   return source.replace(
-    /<mark>([\s\S]*?)<\/mark>/gi,
+    /<mark(?:\s[^>]*)?>([\s\S]*?)<\/mark>/gi,
     (_, content) => `==${content}==`,
   );
 }
 
-function renderMarkdownSubtitle(value) {
+function renderMarkdownText(value) {
   const source = normalizeLegacyMarkTags(value);
   return source.trim() ? markdownRenderer.render(source) : "";
+}
+
+function renderMarkdownPlainText(value) {
+  const html = renderMarkdownText(value);
+  if (!html || typeof document === "undefined") return "";
+
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  const blockNodes = Array.from(
+    container.querySelectorAll("p, li, h1, h2, h3, h4, h5, h6, blockquote, pre"),
+  );
+  const text = blockNodes.length
+    ? blockNodes.map((node) => node.textContent.trim()).join("\n")
+    : container.textContent;
+
+  return text
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
 }
 
 defineExpose({

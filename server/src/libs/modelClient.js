@@ -166,6 +166,34 @@ function normalizeTranslateSubtitleContent(content) {
   return normalizeTextContent(content, /^(?:text|中文译文|译文|翻译|结果)\s*[:：]\s*/i);
 }
 
+function protectMarkedTextForTranslation(value) {
+  const source = String(value || '');
+  const protectedParts = [];
+  const text = source.replace(
+    /<mark(?:\s[^>]*)?>([\s\S]*?)<\/mark>/gi,
+    (_, content) => {
+      let suffix = 0;
+      let token = `__SUBTITLE_PINYIN_${protectedParts.length}__`;
+      while (source.includes(token)) {
+        suffix += 1;
+        token = `__SUBTITLE_PINYIN_${protectedParts.length}_${suffix}__`;
+      }
+
+      protectedParts.push({ token, content });
+      return token;
+    }
+  );
+
+  return { text, protectedParts };
+}
+
+function restoreProtectedTextForTranslation(value, protectedParts) {
+  return protectedParts.reduce(
+    (result, item) => result.split(item.token).join(item.content),
+    String(value || '')
+  );
+}
+
 async function callChatCompletion(body, label) {
   const config = getModelConfig();
   const controller = new AbortController();
@@ -243,7 +271,10 @@ async function extractSubtitleFromImage(imageDataUrl) {
 }
 
 async function translateSubtitleToChinese(text) {
-  if (!text.trim()) return '';
+  const source = text.trim();
+  if (!source) return '';
+
+  const protectedInput = protectMarkedTextForTranslation(source);
 
   const content = await callChatCompletion(
     {
@@ -253,7 +284,7 @@ async function translateSubtitleToChinese(text) {
           content: [
             {
               type: 'text',
-              text: `${getPromptVersion(TRANSLATE_PROMPT, TRANSLATE_PROMPT.VERSION, 'TRANSLATE_PROMPT')}\n\n${text}`
+              text: `${getPromptVersion(TRANSLATE_PROMPT, TRANSLATE_PROMPT.VERSION, 'TRANSLATE_PROMPT')}\n\n${protectedInput.text}`
             }
           ]
         }
@@ -269,7 +300,10 @@ async function translateSubtitleToChinese(text) {
     '翻译'
   );
 
-  return normalizeTranslateSubtitleContent(content);
+  return restoreProtectedTextForTranslation(
+    normalizeTranslateSubtitleContent(content),
+    protectedInput.protectedParts
+  );
 }
 
 module.exports = {
