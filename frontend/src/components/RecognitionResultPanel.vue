@@ -6,7 +6,7 @@
       </template>
     </PanelTitle>
     <div class="frame-grid">
-      <div class="frame-side">
+      <div class="preview-section">
         <input ref="imageInputRef" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="handleImageChange" />
         <div
           class="frame-preview"
@@ -23,8 +23,30 @@
           @paste="handleFramePaste"
         >
           <template v-if="currentFrame?.previewUrl">
-            <img class="frame-preview-bg" :src="currentFrame.previewUrl" alt="" aria-hidden="true" />
-            <img class="frame-preview-image" :src="currentFrame.previewUrl" alt="" />
+            <div ref="previewMediaRef" class="frame-preview-media">
+              <img
+                ref="previewImageRef"
+                class="frame-preview-image"
+                :src="currentFrame.previewUrl"
+                alt=""
+                draggable="false"
+                @load="updatePreviewImageBox"
+              />
+              <div
+                class="subtitle-region-overlay"
+                :class="{ 'subtitle-region-overlay--dragging': regionDrag }"
+                :style="regionOverlayStyle"
+                title="拖拽调整字幕区域"
+                @pointerdown="startRegionDrag($event, 'move')"
+              >
+                <span class="subtitle-region-handle subtitle-region-handle--top" @pointerdown.stop="startRegionDrag($event, 'top')"></span>
+                <span class="subtitle-region-label">{{ regionLabel }}</span>
+                <span
+                  class="subtitle-region-handle subtitle-region-handle--bottom"
+                  @pointerdown.stop="startRegionDrag($event, 'bottom')"
+                ></span>
+              </div>
+            </div>
           </template>
           <el-empty v-else-if="currentFrame" description="需要重新授权目录" />
           <el-empty v-else description="暂无截帧">
@@ -37,67 +59,55 @@
           </el-empty>
           <canvas ref="scratchCanvasRef" hidden></canvas>
         </div>
-
-        <div class="region-controls">
-          <PanelTitle title="字幕区域" compact>
-            <template #meta>
-              <el-tag type="info">{{ regionLabel }}</el-tag>
-            </template>
-          </PanelTitle>
-          <label>
-            <span>顶部</span>
-            <el-slider v-model="topValue" :min="0" :max="90" :step="1" />
-          </label>
-          <label>
-            <span>底部</span>
-            <el-slider v-model="bottomValue" :min="10" :max="100" :step="1" />
-          </label>
-          <el-button
-            class="region-recognize-button"
-            type="primary"
-            :icon="View"
-            :loading="ocrStatus === '识别中'"
-            :disabled="!currentFrame || busy"
-            @click="$emit('recognize')"
-          >
-            识别字幕
-          </el-button>
-        </div>
       </div>
 
-      <div class="text-stack">
-        <PanelTitle title="英文字幕" compact>
-          <template #meta>
-            <el-tag :type="ocrTagType">{{ ocrStatus }}</el-tag>
-          </template>
-        </PanelTitle>
-        <el-input
-          v-model="subtitleModel"
-          class="subtitle-input"
-          type="textarea"
-          :autosize="{ minRows: 5, maxRows: 10 }"
-          resize="none"
-          placeholder="识别结果"
-        />
-        <div v-if="markedSubtitleHtml" class="marked-preview" v-html="markedSubtitleHtml"></div>
+      <div class="text-grid">
+        <div class="text-stack">
+          <PanelTitle title="英文字幕" compact>
+            <template #meta>
+              <el-tag :type="ocrTagType">{{ ocrStatus }}</el-tag>
+            </template>
+          </PanelTitle>
+          <el-input
+            v-model="subtitleModel"
+            class="subtitle-input"
+            type="textarea"
+            :autosize="{ minRows: 5, maxRows: 10 }"
+            resize="none"
+            placeholder="识别结果"
+          />
+          <div v-if="markedSubtitleHtml" class="marked-preview" v-html="markedSubtitleHtml"></div>
+        </div>
 
-        <PanelTitle title="中文翻译" compact>
-          <template #meta>
-            <el-tag :type="translateTagType">{{ translateStatus }}</el-tag>
-          </template>
-        </PanelTitle>
-        <el-input
-          v-model="translationModel"
-          class="translation-input"
-          type="textarea"
-          :autosize="{ minRows: 4, maxRows: 8 }"
-          resize="none"
-          placeholder="翻译结果"
-        />
+        <div class="text-stack">
+          <PanelTitle title="中文翻译" compact>
+            <template #meta>
+              <el-tag :type="translateTagType">{{ translateStatus }}</el-tag>
+            </template>
+          </PanelTitle>
+          <el-input
+            v-model="translationModel"
+            class="translation-input"
+            type="textarea"
+            :autosize="{ minRows: 4, maxRows: 8 }"
+            resize="none"
+            placeholder="翻译结果"
+          />
+        </div>
       </div>
     </div>
 
     <div class="action-bar">
+      <el-button
+        class="action-button action-button--primary"
+        type="primary"
+        :icon="View"
+        :loading="ocrStatus === '识别中'"
+        :disabled="!currentFrame || busy"
+        @click="$emit('recognize')"
+      >
+        识别字幕
+      </el-button>
       <el-button
         class="action-button action-button--primary"
         :icon="Switch"
@@ -119,7 +129,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { CopyDocument, DocumentChecked, Download, Switch, View } from '@element-plus/icons-vue';
 
 import ModulePanel from './ModulePanel.vue';
@@ -176,7 +186,13 @@ const emit = defineEmits([
 
 const scratchCanvasRef = ref(null);
 const imageInputRef = ref(null);
+const previewMediaRef = ref(null);
+const previewImageRef = ref(null);
 const isDraggingImage = ref(false);
+const regionDrag = ref(null);
+const previewImageBox = ref({ left: 0, top: 0, width: 0, height: 0 });
+const MIN_REGION_HEIGHT = 8;
+let previewResizeObserver = null;
 
 const frameMeta = computed(() => {
   const frame = props.currentFrame;
@@ -192,6 +208,19 @@ const translateTagType = computed(() =>
 );
 
 const regionLabel = computed(() => `${props.cropTop}% - ${props.cropBottom}%`);
+const regionOverlayStyle = computed(() => {
+  const box = previewImageBox.value;
+  const top = box.top + box.height * (props.cropTop / 100);
+  const height = box.height * ((props.cropBottom - props.cropTop) / 100);
+
+  return {
+    left: `${box.left}px`,
+    top: `${top}px`,
+    width: `${box.width}px`,
+    height: `${height}px`,
+    visibility: box.width && box.height ? 'visible' : 'hidden'
+  };
+});
 
 const subtitleModel = computed({
   get: () => props.subtitleText,
@@ -203,23 +232,141 @@ const translationModel = computed({
   set: value => emit('update:translationText', value)
 });
 
-const topValue = computed({
-  get: () => props.cropTop,
-  set: value => {
-    emit('update:cropTop', value);
-    emit('update:cropBottom', normalizeRegion(value, props.cropBottom));
-  }
-});
-
-const bottomValue = computed({
-  get: () => props.cropBottom,
-  set: value => emit('update:cropBottom', normalizeRegion(props.cropTop, value))
-});
-
-function normalizeRegion(top, bottom) {
-  if (bottom <= top + 8) return Math.min(100, top + 8);
-  return bottom;
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }
+
+function emitCropRegion(top, bottom) {
+  let nextTop = Math.round(clamp(top, 0, 100 - MIN_REGION_HEIGHT));
+  let nextBottom = Math.round(clamp(bottom, MIN_REGION_HEIGHT, 100));
+
+  if (nextBottom < nextTop + MIN_REGION_HEIGHT) nextBottom = nextTop + MIN_REGION_HEIGHT;
+  if (nextBottom > 100) {
+    nextBottom = 100;
+    nextTop = 100 - MIN_REGION_HEIGHT;
+  }
+
+  emit('update:cropTop', nextTop);
+  emit('update:cropBottom', nextBottom);
+}
+
+function updatePreviewImageBox() {
+  const media = previewMediaRef.value;
+  const image = previewImageRef.value;
+  const naturalWidth = image?.naturalWidth || props.currentFrame?.width || 0;
+  const naturalHeight = image?.naturalHeight || props.currentFrame?.height || 0;
+
+  if (!media || !naturalWidth || !naturalHeight) {
+    previewImageBox.value = { left: 0, top: 0, width: 0, height: 0 };
+    return;
+  }
+
+  const rect = media.getBoundingClientRect();
+  if (!rect.width || !rect.height) {
+    previewImageBox.value = { left: 0, top: 0, width: 0, height: 0 };
+    return;
+  }
+
+  const mediaRatio = rect.width / rect.height;
+  const imageRatio = naturalWidth / naturalHeight;
+  let width = rect.width;
+  let height = rect.height;
+  let left = 0;
+  let top = 0;
+
+  if (imageRatio > mediaRatio) {
+    height = width / imageRatio;
+    top = (rect.height - height) / 2;
+  } else {
+    width = height * imageRatio;
+    left = (rect.width - width) / 2;
+  }
+
+  previewImageBox.value = { left, top, width, height };
+}
+
+function observePreviewMedia() {
+  previewResizeObserver?.disconnect();
+  previewResizeObserver = null;
+
+  if (!previewMediaRef.value || typeof ResizeObserver === 'undefined') return;
+
+  previewResizeObserver = new ResizeObserver(updatePreviewImageBox);
+  previewResizeObserver.observe(previewMediaRef.value);
+}
+
+function startRegionDrag(event, mode) {
+  if (!props.currentFrame || props.busy || !previewMediaRef.value) return;
+
+  updatePreviewImageBox();
+  const box = previewImageBox.value;
+  if (!box.height) return;
+
+  event.preventDefault();
+  regionDrag.value = {
+    mode,
+    startY: event.clientY,
+    startTop: props.cropTop,
+    startBottom: props.cropBottom,
+    rectHeight: box.height
+  };
+  window.addEventListener('pointermove', handleRegionPointerMove);
+  window.addEventListener('pointerup', stopRegionDrag);
+  window.addEventListener('pointercancel', stopRegionDrag);
+}
+
+function handleRegionPointerMove(event) {
+  const drag = regionDrag.value;
+  if (!drag) return;
+
+  event.preventDefault();
+  const delta = ((event.clientY - drag.startY) / drag.rectHeight) * 100;
+  const startHeight = drag.startBottom - drag.startTop;
+
+  if (drag.mode === 'top') {
+    const top = clamp(drag.startTop + delta, 0, drag.startBottom - MIN_REGION_HEIGHT);
+    emitCropRegion(top, drag.startBottom);
+    return;
+  }
+
+  if (drag.mode === 'bottom') {
+    const bottom = clamp(drag.startBottom + delta, drag.startTop + MIN_REGION_HEIGHT, 100);
+    emitCropRegion(drag.startTop, bottom);
+    return;
+  }
+
+  const top = clamp(drag.startTop + delta, 0, 100 - startHeight);
+  emitCropRegion(top, top + startHeight);
+}
+
+function stopRegionDrag() {
+  regionDrag.value = null;
+  window.removeEventListener('pointermove', handleRegionPointerMove);
+  window.removeEventListener('pointerup', stopRegionDrag);
+  window.removeEventListener('pointercancel', stopRegionDrag);
+}
+
+watch(
+  () => props.currentFrame?.previewUrl,
+  async () => {
+    await nextTick();
+    observePreviewMedia();
+    updatePreviewImageBox();
+  },
+  { immediate: true }
+);
+
+onMounted(() => {
+  observePreviewMedia();
+  updatePreviewImageBox();
+  window.addEventListener('resize', updatePreviewImageBox);
+});
+
+onBeforeUnmount(() => {
+  stopRegionDrag();
+  previewResizeObserver?.disconnect();
+  window.removeEventListener('resize', updatePreviewImageBox);
+});
 
 function isImageFile(file) {
   return Boolean(file?.type?.startsWith('image/'));

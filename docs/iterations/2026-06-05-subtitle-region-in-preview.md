@@ -2,15 +2,15 @@
 
 ## 背景
 
-字幕区域选择原本是左侧独立模块，和当前截帧预览、识别结果分离。用户希望将该功能移动到“截帧预览”模块内部，让区域选择和识别动作更贴近当前帧。
+截帧预览原本通过 `frame-preview-bg` 使用同图模糊铺底，并在预览下方提供独立字幕区域控件。用户希望预览区直接完整显示图片，在图片上展示 `cropTop`/`cropBottom` 合围的字幕区域，并把识别动作统一放到按钮区。
 
 ## 变更内容
 
-- 将顶部/底部字幕区域滑块移动到 `RecognitionResultPanel` 的截帧预览左侧区域下方。
-- 将“识别字幕”按钮移动到同一个内部区域控件内。
-- `App.vue` 不再渲染独立 `SubtitleRegionPanel`，改为向 `RecognitionResultPanel` 传递 `cropTop`、`cropBottom` 并监听 `recognize`。
-- 删除不再使用的 `SubtitleRegionPanel.vue`。
-- 更新样式，将原独立面板样式改为截帧预览内部控件样式。
+- 移除截帧预览中的 `frame-preview-bg` 模糊背景层，预览图改为完整 `object-fit: contain` 显示。
+- 在实际显示图片区域内渲染字幕区域覆盖层，区域位置由 `cropTop`、`cropBottom` 百分比计算。
+- 支持直接拖拽字幕覆盖层整体移动，也支持拖拽顶部/底部边缘调整范围，并保留最小 8% 高度约束。
+- 将“识别字幕”按钮移动到结果面板底部按钮区。
+- 将结果区域改为“预览区 / 英文字幕 + 中文翻译 / 按钮区”的主结构。
 
 ## 接口/兼容性影响
 
@@ -22,9 +22,10 @@
 
 ## 验证
 
-- 已扫描前端引用，确认 `App.vue` 不再引用 `SubtitleRegionPanel`。
-- 已保留 `cropTop`、`cropBottom` 的 v-model 更新逻辑和最小 8% 区域约束。
+- `RecognitionResultPanel.vue` 已通过 `@vue/compiler-sfc` 解析、脚本编译和模板编译检查。
+- 已扫描确认无 `frame-preview-bg`、旧区域控件和旧识别按钮样式残留引用。
+- 已启动 Vite 开发服务并确认 `http://127.0.0.1:5173/` 返回 HTTP 200。
 
 ## 回滚方式
 
-恢复 `SubtitleRegionPanel.vue`，在 `App.vue` 中重新引入并渲染独立组件，同时移除 `RecognitionResultPanel` 内部的字幕区域控件和相关 props/events。
+恢复 `RecognitionResultPanel.vue` 中旧的双图片预览结构、预览下方区域控件和内部识别按钮；同时恢复 `styles.css` 中 `frame-preview-bg`、`region-controls`、`region-recognize-button` 等旧样式。

@@ -5,7 +5,8 @@ const { extractSubtitle, translateSubtitle } = require('./services/subtitleServi
 
 loadEnvFile();
 
-const LOCAL_ORIGIN_PATTERN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i;
+const DEV_ORIGIN_PATTERN =
+  /^https?:\/\/(localhost|127(?:\.\d{1,3}){3}|\[::1\]|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?::\d+)?$/i;
 
 function createResponseBody(code, message, data = {}) {
   return { code, message, data };
@@ -15,7 +16,7 @@ function isAllowedOrigin(origin, configuredOrigins) {
   if (!origin) return false;
   if (configuredOrigins.includes('*')) return true;
   if (configuredOrigins.includes(origin)) return true;
-  return LOCAL_ORIGIN_PATTERN.test(origin);
+  return DEV_ORIGIN_PATTERN.test(origin);
 }
 
 function applyCorsHeaders(req, res, configuredOrigins) {
@@ -141,9 +142,9 @@ function createServer() {
 }
 
 if (require.main === module) {
-  const { port } = getServerConfig();
-  createServer().listen(port, () => {
-    console.log(`Subtitle API server listening on http://localhost:${port}`);
+  const { host, port } = getServerConfig();
+  createServer().listen(port, host, () => {
+    console.log(`Subtitle API server listening on http://${host}:${port}`);
   });
 }
 

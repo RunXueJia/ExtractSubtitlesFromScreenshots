@@ -72,6 +72,7 @@ function parseByteSize(value, fallbackBytes) {
 
 function getServerConfig() {
   return {
+    host: getEnv('HOST') || '0.0.0.0',
     port: parsePositiveInteger(getEnv('PORT'), 3001),
     bodyLimitBytes: parseByteSize(getEnv('JSON_BODY_LIMIT'), 8 * 1024 * 1024),
     corsOrigins: getEnv('CORS_ORIGIN')
