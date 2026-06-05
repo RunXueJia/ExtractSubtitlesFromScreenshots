@@ -43,7 +43,7 @@
 - [ ] 将“显示文件所在文件夹”替换为 Web 可用动作，例如下载图片、复制图片、查看历史详情。
 
 ## 4. 前端迁移任务
-- [ ] 新目录中使用vue。
+- [ ] 新目录中使用vue+element。
 - [ ] 从源项目 `src/index.html`、`src/styles.css`、`src/renderer.js` 提取可复用界面和交互逻辑。
 - [ ] 去掉对 `window.frameApp`、IPC、Electron preload 的依赖。
 - [ ] 在 `frontend/src/api/` 统一封装 `/api/extract-subtitle` 和 `/api/translate-subtitle` 请求。
